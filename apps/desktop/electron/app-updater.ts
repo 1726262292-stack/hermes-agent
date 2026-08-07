@@ -3,7 +3,7 @@
 // Bundled installs update through GitHub Releases: electron-updater reads
 // latest*.yml from the release that the desktop-bundled-release workflow
 // attached, downloads the new installer, and applies it. The swapped-in app
-// carries the new runtime in its own resources (resident mode), so there is
+// carries the new runtime in its own resources (embedded mode), so there is
 // no post-update install step at all.
 //
 // Source installs never reach this module. The callers gate on the install
@@ -17,21 +17,23 @@ import type { AppUpdater } from 'electron-updater'
 
 export interface UpdaterGateFacts {
   stampHasPayload: boolean
-  installMode: string | null // from .hermes-install.json; null = no manifest
   isPackaged: boolean
 }
 
 /**
  * True when this launch must use electron-updater for app updates.
  *
- * All three conditions are necessary:
- * - the build carries payloads (a thin build has no matching feed artifacts),
- * - the checkout opted into desktop management (installMode bundled) — an
- *   ejected or source checkout keeps the git update path,
+ * Both conditions are necessary:
+ * - the build carries an embedded payload (an external build has no
+ *   matching feed artifacts),
  * - the app is packaged (dev runs have no app-update.yml).
+ *
+ * This is a constant of the artifact, not of machine state. An eject
+ * replaces the whole app with a source-built external one (no embedded
+ * stamp), so no "ejected embedded install" state exists to gate on.
  */
 export function shouldUseAppUpdater(facts: UpdaterGateFacts): boolean {
-  return facts.stampHasPayload === true && facts.installMode === 'bundled' && facts.isPackaged === true
+  return facts.stampHasPayload === true && facts.isPackaged === true
 }
 
 /**

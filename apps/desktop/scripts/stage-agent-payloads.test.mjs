@@ -7,8 +7,7 @@ import {
   bannerExpectations,
   buildManifest,
   bundlePthLines,
-  parseSkips,
-  PAYLOAD_ITEMS,
+  PAYLOAD_SCHEMA_VERSION,
   pipTargetArgs,
   pythonDirPattern,
   pythonRequest,
@@ -98,38 +97,23 @@ test('falls back to git describe only for exact release tags', () => {
   assert.throws(() => resolveTag([], () => null), /no release tag/)
 })
 
-// ─── parseSkips ────────────────────────────────────────────────────
-
-test('parseSkips accepts known items and rejects unknown ones', () => {
-  assert.deepEqual([...parseSkips(['--skip=site-packages,node'])].sort(), ['node', 'site-packages'])
-  assert.equal(parseSkips([]).size, 0)
-  assert.throws(() => parseSkips(['--skip=venv']), /unknown --skip/)
-  // Retired payload items must not silently no-op in CI caching configs.
-  assert.throws(() => parseSkips(['--skip=wheels']), /unknown --skip/)
-})
-
 // ─── buildManifest ─────────────────────────────────────────────────
 
-test('manifest records staged vs explicitly-skipped vs failed per item', () => {
+test('the manifest is a complete-payload sentinel: schema, tag, commit', () => {
   const target = resolveTargets('linux', 'x64')
   const manifest = buildManifest({
     tag: 'v1.0.0',
     commit: 'a'.repeat(40),
-    target,
-    staged: ['repo', 'uv', 'python'],
-    skipped: new Set(['site-packages'])
+    target
   })
+
+  assert.equal(manifest.schemaVersion, PAYLOAD_SCHEMA_VERSION)
   assert.equal(manifest.tag, 'v1.0.0')
-  // Invariant: every payload item has an entry. The resident-runtime gate
-  // reads presence. An absent entry is ambiguous.
-  for (const item of PAYLOAD_ITEMS) {
-    assert.ok(manifest.items[item], item)
-  }
-  assert.equal(manifest.items.repo.status, 'staged')
-  assert.equal(manifest.items['site-packages'].status, 'skipped')
-  assert.equal(manifest.items['site-packages'].reason, 'explicit-skip')
-  // node was not staged and not explicitly skipped, so its status is failed.
-  assert.equal(manifest.items.node.reason, 'failed')
+  assert.equal(manifest.commit, 'a'.repeat(40))
+  assert.equal(manifest.platform, 'linux')
+  // No per-item status exists: completeness is a build invariant, not a
+  // runtime question. The external stub is the only other manifest shape.
+  assert.equal('items' in manifest, false)
 })
 
 // ─── arch guards ────────────────────────────────────────────────────

@@ -1,10 +1,11 @@
-// bundled-runtime.ts: decision logic for the bundled desktop runtime.
-// This module finds payloads, decides marker-tag invalidation, and decides
-// silent adoption for pristine legacy checkouts. Marker-tag invalidation
-// tells us when an app update forces offline re-materialization.
+// bundled-runtime.ts: pure helpers for the embedded desktop runtime.
+// An Embedded artifact carries the whole agent runtime in its resources
+// and ALWAYS spawns the backend from there — there is no decision contest
+// against checkouts. This module only answers: does a complete payload
+// exist (resolvePayload), where is its interpreter (findEmbeddedPython),
+// and what update channel applies (resolveChannel).
 //
-// Design: .hermes/plans/2026-08-05_desktop-bundled-payloads-channels-eject.md
-// (§1.4 adoption, §4.3 bundled update flow).
+// Design: .hermes/plans/2026-08-07_183000-two-axis-install-model.md.
 //
 // All functions in this file are pure, and the callers inject the
 // dependencies. Thus vitest covers the whole decision surface. The impure
@@ -18,20 +19,27 @@ import path from 'node:path'
 export interface PayloadInfo {
   dir: string
   tag: string | null
-  schemaVersion: number | null
-  items: Record<string, { status: string }>
 }
 
 /**
  * Resolve the agent-payload directory that ships in the resources of the
- * packaged app. Returns null for thin builds (a stub manifest with
- * thin:true), for dev runs (no resourcesPath), and for unreadable manifests.
- * Every caller treats null as "behave exactly like the current network
- * bootstrap".
+ * packaged app. Returns null for external builds (a stub manifest with
+ * external:true), for dev runs (no resourcesPath), for unreadable or
+ * old-schema manifests, and for payloads with a missing item directory.
+ * Item presence is a build-time invariant (staging fails the build on an
+ * incomplete payload), so a missing directory here means a damaged or
+ * truncated artifact — the caller reports it, it does not fall back.
  */
 export function resolvePayload(
   resourcesPath: string | null | undefined,
-  readFile: (p: string) => string = p => fs.readFileSync(p, 'utf8')
+  readFile: (p: string) => string = p => fs.readFileSync(p, 'utf8'),
+  dirExists: (p: string) => boolean = p => {
+    try {
+      return fs.statSync(p).isDirectory()
+    } catch {
+      return false
+    }
+  }
 ): PayloadInfo | null {
   if (!resourcesPath) {
     return null
@@ -47,95 +55,42 @@ export function resolvePayload(
     return null
   }
 
-  if (!parsed || typeof parsed !== 'object' || parsed.thin === true) {
+  if (!parsed || typeof parsed !== 'object' || parsed.external === true) {
     return null
   }
 
-  const items = parsed.items && typeof parsed.items === 'object' ? parsed.items : {}
-  const hasAny = Object.values(items).some((v: any) => v && v.status === 'staged')
+  if (parsed.schemaVersion !== PAYLOAD_SCHEMA_VERSION) {
+    return null
+  }
 
-  if (!hasAny) {
+  if (!EMBEDDED_RUNTIME_ITEMS.every(item => dirExists(path.join(dir, item)))) {
     return null
   }
 
   return {
     dir,
-    tag: typeof parsed.tag === 'string' ? parsed.tag : null,
-    schemaVersion: typeof parsed.schemaVersion === 'number' ? parsed.schemaVersion : null,
-    items
+    tag: typeof parsed.tag === 'string' ? parsed.tag : null
   }
 }
 
-// ─── resident runtime (plan: 2026-08-07_resources-resident-bundled-runtime) ──
+// The manifest schema this build understands. Staging writes the same
+// number (stage-agent-payloads.mjs); the app and its payload travel in the
+// same artifact, so a mismatch means a damaged or foreign artifact.
+export const PAYLOAD_SCHEMA_VERSION = 3
 
-// The payload items a resident launch requires — all of them. uv never
-// installs the runtime (site-packages ships prebuilt), but runtime lazy
-// installs for plugins are a mandatory feature, and uv is what installs
-// them into the writable overlay. A payload without uv is an incomplete
-// artifact, not a degraded one.
-export const RESIDENT_RUNTIME_ITEMS = ['repo', 'uv', 'python', 'site-packages', 'node'] as const
-
-export interface ResidentDecision {
-  resident: boolean
-  reason: string
-}
-
-/**
- * Decide whether this launch runs the backend directly out of the payload
- * in resources (resident) instead of a checkout at ~/.hermes/hermes-agent.
- *
- * Resident is the default for a complete schema-2 payload. The checkout
- * wins only when the user demonstrably owns it:
- * - its manifest says installMode:source (an eject, or a deliberate
- *   install.sh run — both write that manifest), or
- * - it exists with NO manifest and NO desktop-written bootstrap marker,
- *   which is the pre-manifest curl|bash cohort. CLI-first users keep
- *   their install; the desktop never silently shadows it.
- *
- * A pre-manifest checkout WITH a desktop marker (old desktop installs)
- * and a phase-1 bundled checkout (manifest installMode:bundled) both go
- * resident: their materialized trees were desktop-managed anyway, and
- * nothing is deleted — the preference is reversible by eject.
- */
-export function decideResidentRuntime(facts: {
-  payload: PayloadInfo | null
-  checkoutExists: boolean
-  checkoutManifest: { installMode?: string } | null
-  markerSaysDesktop: boolean
-}): ResidentDecision {
-  const { payload, checkoutExists, checkoutManifest, markerSaysDesktop } = facts
-
-  if (!payload) {
-    return { resident: false, reason: 'thin build (no payload)' }
-  }
-
-  if ((payload.schemaVersion ?? 0) < 2) {
-    return { resident: false, reason: 'payload predates the resident layout' }
-  }
-
-  const missing = RESIDENT_RUNTIME_ITEMS.filter((item) => payload.items[item]?.status !== 'staged')
-
-  if (missing.length > 0) {
-    return { resident: false, reason: `payload incomplete (missing: ${missing.join(', ')})` }
-  }
-
-  if (checkoutManifest && checkoutManifest.installMode === 'source') {
-    return { resident: false, reason: 'checkout at the active root is source-managed' }
-  }
-
-  if (checkoutExists && !checkoutManifest && !markerSaysDesktop) {
-    return { resident: false, reason: 'legacy checkout without desktop provenance (CLI-first user)' }
-  }
-
-  return { resident: true, reason: 'complete resident payload' }
-}
+// The runtime items inside a complete embedded payload — all of them. uv
+// never installs the runtime (site-packages ships prebuilt), but runtime
+// lazy installs for plugins are a mandatory feature, and uv is what
+// installs them into the writable overlay. A payload without uv is an
+// incomplete artifact, not a degraded one.
+export const EMBEDDED_RUNTIME_ITEMS = ['repo', 'uv', 'python', 'site-packages', 'node'] as const
 
 /**
  * Locate the payload CPython binary. The install directory is
  * patch-versioned (python/cpython-3.11.15-<triple>/...), so this scans
  * rather than hardcoding, and it verifies the binary exists.
  */
-export function findResidentPython(
+export function findEmbeddedPython(
   payloadDir: string,
   platform: NodeJS.Platform = process.platform,
   fsImpl: Pick<typeof fs, 'readdirSync' | 'existsSync'> = fs
@@ -169,20 +124,47 @@ export function findResidentPython(
 // ─── update channel ─────────────────────────────────────────────────────────
 
 /**
- * The update channel of a checkout. Mirrors the resolution in
- * hermes_cli/install_manifest.py: a bundled install is always stable, a
- * source manifest carries its own channel, and a missing or unreadable
- * manifest means main. The channel decides what the version pill compares
- * against. The install mode decides only the apply mechanism.
+ * The update channel of a source checkout, read from config.yaml text
+ * (`update.channel`). The CLI owns this key; Electron only mirrors it for
+ * the version pill. Anything but an explicit `stable` means `main` — the
+ * default channel. Embedded artifacts never call this: their updates are
+ * release-fed by construction.
+ *
+ * The parser is deliberately narrow: find the top-level `update:` block,
+ * then the first `channel:` inside it. config.yaml is machine-written
+ * (`hermes config set update.channel ...`), so this shape is stable.
  */
-export function resolveChannel(
-  manifest: { installMode?: string; channel?: string } | null | undefined
-): 'stable' | 'main' {
-  if (manifest?.installMode === 'bundled') {
-    return 'stable'
+export function updateChannelFromConfig(configText: string | null | undefined): 'stable' | 'main' {
+  if (!configText) {
+    return 'main'
   }
 
-  return manifest?.channel === 'stable' ? 'stable' : 'main'
+  let inUpdateBlock = false
+
+  for (const raw of configText.split('\n')) {
+    const line = raw.replace(/\s+$/, '')
+
+    if (/^update:\s*$/.test(line)) {
+      inUpdateBlock = true
+
+      continue
+    }
+
+    if (inUpdateBlock) {
+      // The block ends at the next top-level key (no leading whitespace).
+      if (/^\S/.test(line)) {
+        break
+      }
+
+      const match = line.match(/^\s+channel:\s*["']?(stable|main)["']?\s*(#.*)?$/)
+
+      if (match) {
+        return match[1] as 'stable' | 'main'
+      }
+    }
+  }
+
+  return 'main'
 }
 
 /**

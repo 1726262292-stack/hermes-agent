@@ -6,39 +6,16 @@ import { describeFeedCheck, shouldUseAppUpdater } from './app-updater'
 
 // ── shouldUseAppUpdater ─────────────────────────────────────────────
 
-test('app updater runs only for packaged bundled installs with payloads', () => {
-  assert.equal(
-    shouldUseAppUpdater({ stampHasPayload: true, installMode: 'bundled', isPackaged: true }),
-    true
-  )
+test('app updater runs for packaged embedded builds', () => {
+  assert.equal(shouldUseAppUpdater({ stampHasPayload: true, isPackaged: true }), true)
 })
 
-test('a thin build never uses the app updater', () => {
-  assert.equal(
-    shouldUseAppUpdater({ stampHasPayload: false, installMode: 'bundled', isPackaged: true }),
-    false
-  )
-})
-
-test('a source or ejected checkout keeps the git update path', () => {
-  // Eject writes installMode: source. The gate must fall through to git.
-  assert.equal(
-    shouldUseAppUpdater({ stampHasPayload: true, installMode: 'source', isPackaged: true }),
-    false
-  )
-  // No manifest at all: a legacy checkout. Adoption may run later, but the
-  // updater gate stays closed until the manifest says bundled.
-  assert.equal(
-    shouldUseAppUpdater({ stampHasPayload: true, installMode: null, isPackaged: true }),
-    false
-  )
+test('an external build never uses the app updater', () => {
+  assert.equal(shouldUseAppUpdater({ stampHasPayload: false, isPackaged: true }), false)
 })
 
 test('dev runs never use the app updater', () => {
-  assert.equal(
-    shouldUseAppUpdater({ stampHasPayload: true, installMode: 'bundled', isPackaged: false }),
-    false
-  )
+  assert.equal(shouldUseAppUpdater({ stampHasPayload: true, isPackaged: false }), false)
 })
 
 // ── describeFeedCheck ───────────────────────────────────────────────

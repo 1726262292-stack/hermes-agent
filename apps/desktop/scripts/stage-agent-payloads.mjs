@@ -4,7 +4,7 @@
  * .hermes/plans/2026-08-07_resources-resident-bundled-runtime.md.
  *
  * Output: apps/desktop/build/agent-payload/
- *   manifest.json          schemaVersion, tag, commit, platform, arch, per-item status
+ *   manifest.json          schemaVersion, tag, commit, platform, arch
  *   repo/                  plain source tree at the release tag (no .git),
  *                          plus the PREBUILT JS surfaces (ui-tui dist +
  *                          node_modules, web_dist) and the build stamp
@@ -22,11 +22,9 @@
  *
  * Gating: the script does nothing unless HERMES_DESKTOP_BUNDLED=1. That
  * variable is an internal build-time env for CI wiring, not user config.
- * Thus dev builds and current CI keep producing thin builds. You can skip
- * individual items with --skip=<item,item> for incremental CI caching.
- * The manifest.json records every skip. The desktop only runs resident when
- * every runtime item is staged; a partial payload falls back to the network
- * bootstrap path.
+ * Thus dev builds and current CI keep producing external builds. There is
+ * no per-item skip: an embedded payload is complete, or this script throws
+ * and the build fails.
  *
  * The heavy work shells out to git, uv, and tar. The decision logic
  * (target resolution, pip arg construction, manifest shape) is exported as
@@ -39,13 +37,11 @@ import path from "node:path"
 
 import { isMain } from "./utils.mjs"
 
-export const PAYLOAD_SCHEMA_VERSION = 2
+export const PAYLOAD_SCHEMA_VERSION = 3
 
 const DESKTOP_ROOT = path.resolve(import.meta.dirname, "..")
 const REPO_ROOT = path.resolve(DESKTOP_ROOT, "..", "..")
 const OUT_DIR = path.join(DESKTOP_ROOT, "build", "agent-payload")
-
-export const PAYLOAD_ITEMS = ["repo", "uv", "python", "site-packages", "node"]
 
 /**
  * Map (process.platform, process.arch) to the uv, python-build-standalone,
@@ -197,11 +193,12 @@ export function bannerExpectations(target) {
   }
 }
 
+
 /**
  * Resolve the release tag to stage. CI passes --tag=vX.Y.Z. Local runs can
  * fall back to `git describe` for smoke tests. When bundling was requested
  * and no tag exists, payload staging is a hard error. A bundled artifact
- * without a pinned tag produces un-adoptable, un-updatable installs.
+ * without a pinned tag produces un-updatable installs.
  */
 export function resolveTag(argv, describeFn) {
   const explicit = argv.find((a) => a.startsWith("--tag="))
@@ -221,37 +218,13 @@ export function resolveTag(argv, describeFn) {
   )
 }
 
-export function parseSkips(argv) {
-  const flag = argv.find((a) => a.startsWith("--skip="))
-  if (!flag) return new Set()
-  const skips = new Set(
-    flag
-      .slice("--skip=".length)
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-  )
-  for (const s of skips) {
-    if (!PAYLOAD_ITEMS.includes(s)) {
-      throw new Error(`unknown --skip item: ${s} (valid: ${PAYLOAD_ITEMS.join(", ")})`)
-    }
-  }
-  return skips
-}
-
 /**
- * Build the manifest that describes the contents of the payload tree.
- * `items` records per-item presence. Thus the resident-runtime gate in
- * the Electron main process can require exactly the items it needs and
- * refuse to run resident from an incomplete artifact.
+ * Build the manifest that marks a complete embedded payload. The Electron
+ * main process treats its presence (schemaVersion match, external: absent)
+ * as the payload-present sentinel. Completeness is a build-time invariant:
+ * main() throws before this manifest is written when any stage fails.
  */
-export function buildManifest({ tag, commit, target, staged, skipped }) {
-  const items = {}
-  for (const item of PAYLOAD_ITEMS) {
-    items[item] = staged.includes(item)
-      ? { status: "staged" }
-      : { status: "skipped", reason: skipped.has(item) ? "explicit-skip" : "failed" }
-  }
+export function buildManifest({ tag, commit, target }) {
   return {
     schemaVersion: PAYLOAD_SCHEMA_VERSION,
     tag,
@@ -259,7 +232,6 @@ export function buildManifest({ tag, commit, target, staged, skipped }) {
     platform: target.platform,
     arch: target.arch,
     builtAt: new Date().toISOString(),
-    items,
   }
 }
 
@@ -595,13 +567,12 @@ function main() {
     fs.mkdirSync(OUT_DIR, { recursive: true })
     fs.writeFileSync(
       path.join(OUT_DIR, "manifest.json"),
-      JSON.stringify({ schemaVersion: PAYLOAD_SCHEMA_VERSION, thin: true, items: {} }, null, 2) + "\n"
+      JSON.stringify({ schemaVersion: PAYLOAD_SCHEMA_VERSION, external: true }, null, 2) + "\n"
     )
-    console.log("[stage-agent-payloads] HERMES_DESKTOP_BUNDLED != 1 — wrote thin stub manifest")
+    console.log("[stage-agent-payloads] HERMES_DESKTOP_BUNDLED != 1 — wrote external stub manifest")
     return
   }
   const target = resolveTargets()
-  const skips = parseSkips(process.argv.slice(2))
   const tag = resolveTag(process.argv.slice(2), () => {
     try {
       return execSync("git describe --tags --exact-match", { cwd: REPO_ROOT, encoding: "utf8" }).trim()
@@ -611,46 +582,24 @@ function main() {
   })
 
   fs.mkdirSync(OUT_DIR, { recursive: true })
-  const staged = []
-  let commit = null
-  let payloadPython = null
 
-  const steps = {
-    repo: () => {
-      commit = stageRepo(tag, OUT_DIR)
-    },
-    uv: () => {
-      payloadPython = stageUvAndPython(target, OUT_DIR)
-    },
-    python: () => {
-      // The uv step stages python too (one uv invocation). Guard the
-      // manifest: a --skip=uv run must not record python as staged.
-      if (!payloadPython) {
-        throw new Error("python: the uv step was skipped, so no interpreter was staged — skip python too")
-      }
-    },
-    "site-packages": () => {
-      stageSitePackages(target, OUT_DIR, payloadPython)
-      // The glue that makes the payload interpreter resolve repo/ and
-      // site-packages/ wherever the bundle sits. Written after both
-      // stages exist so a failed staging run never leaves a .pth that
-      // points at nothing.
-      writeBundlePth(OUT_DIR, payloadPython)
-    },
-    node: () => stageNode(target, OUT_DIR),
-  }
+  // Every stage runs, in order. A failure throws and the build fails:
+  // an embedded payload is complete, or it does not exist.
+  console.log(`[stage-agent-payloads] staging: repo (${target.key}, ${tag})`)
+  const commit = stageRepo(tag, OUT_DIR)
+  console.log(`[stage-agent-payloads] staging: uv + python (${target.key}, ${tag})`)
+  const payloadPython = stageUvAndPython(target, OUT_DIR)
+  console.log(`[stage-agent-payloads] staging: site-packages (${target.key}, ${tag})`)
+  stageSitePackages(target, OUT_DIR, payloadPython)
+  // The glue that makes the payload interpreter resolve repo/ and
+  // site-packages/ wherever the bundle sits. Written after both stages
+  // exist so a failed staging run never leaves a .pth that points at
+  // nothing.
+  writeBundlePth(OUT_DIR, payloadPython)
+  console.log(`[stage-agent-payloads] staging: node (${target.key}, ${tag})`)
+  stageNode(target, OUT_DIR)
 
-  for (const item of PAYLOAD_ITEMS) {
-    if (skips.has(item)) {
-      console.log(`[stage-agent-payloads] skip: ${item}`)
-      continue
-    }
-    console.log(`[stage-agent-payloads] staging: ${item} (${target.key}, ${tag})`)
-    steps[item]()
-    staged.push(item)
-  }
-
-  const manifest = buildManifest({ tag, commit, target, staged, skipped: skips })
+  const manifest = buildManifest({ tag, commit, target })
   fs.writeFileSync(path.join(OUT_DIR, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n")
   console.log(`[stage-agent-payloads] wrote ${path.join(OUT_DIR, "manifest.json")}`)
 }

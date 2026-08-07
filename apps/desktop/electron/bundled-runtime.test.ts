@@ -3,163 +3,89 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import {
-  decideResidentRuntime,
-  findResidentPython,
+  EMBEDDED_RUNTIME_ITEMS,
+  findEmbeddedPython,
   latestReleaseFromLsRemote,
-  type PayloadInfo,
-  resolveChannel,
-  resolvePayload
+  PAYLOAD_SCHEMA_VERSION,
+  resolvePayload,
+  updateChannelFromConfig
 } from '../electron/bundled-runtime'
 
 // ─── resolvePayload ────────────────────────────────────────────────
 
 const readerFor = (manifest: unknown) => (p: string) => {
-  if (!p.endsWith('manifest.json')) {throw new Error('ENOENT')}
+  if (!p.endsWith('manifest.json')) {
+    throw new Error('ENOENT')
+  }
 
   return JSON.stringify(manifest)
 }
 
-test('resolvePayload returns null for dev runs, thin stubs, and garbage', () => {
+const allDirsExist = () => true
+const noDirsExist = () => false
+
+const completeManifest = { schemaVersion: PAYLOAD_SCHEMA_VERSION, tag: 'v1.2.3', commit: 'a'.repeat(40) }
+
+test('resolvePayload returns null for dev runs, external stubs, and garbage', () => {
   assert.equal(resolvePayload(null), null)
   assert.equal(resolvePayload(undefined), null)
-  assert.equal(resolvePayload('/res', readerFor({ schemaVersion: 1, thin: true, items: {} })), null)
   assert.equal(
-    resolvePayload('/res', () => {
-      throw new Error('ENOENT')
-    }),
+    resolvePayload('/res', readerFor({ schemaVersion: PAYLOAD_SCHEMA_VERSION, external: true }), allDirsExist),
     null
   )
-  assert.equal(resolvePayload('/res', readerFor('not-an-object')), null)
-  // A manifest with items but no staged item returns null (an all-skipped payload).
   assert.equal(
-    resolvePayload('/res', readerFor({ tag: 'v1.0.0', items: { repo: { status: 'skipped' } } })),
+    resolvePayload(
+      '/res',
+      () => {
+        throw new Error('ENOENT')
+      },
+      allDirsExist
+    ),
+    null
+  )
+  assert.equal(resolvePayload('/res', readerFor('not-an-object'), allDirsExist), null)
+})
+
+test('resolvePayload rejects old-schema manifests', () => {
+  // A schema-2 manifest comes from a pre-embedded artifact. The app and
+  // its payload travel together, so a mismatch means a foreign artifact.
+  assert.equal(
+    resolvePayload('/res', readerFor({ schemaVersion: 2, tag: 'v1.0.0', items: { repo: { status: 'staged' } } }), allDirsExist),
     null
   )
 })
 
-test('resolvePayload returns dir + tag for a real payload', () => {
-  const p = resolvePayload('/res', readerFor({ tag: 'v1.2.3', items: { repo: { status: 'staged' } } }))
+test('resolvePayload rejects a payload with a missing item directory', () => {
+  // Completeness is a build invariant; a missing directory here means a
+  // damaged or truncated artifact.
+  assert.equal(resolvePayload('/res', readerFor(completeManifest), noDirsExist), null)
+
+  // One missing item out of five is still a rejection.
+  const allButUv = (p: string) => !p.endsWith('/uv')
+
+  assert.equal(resolvePayload('/res', readerFor(completeManifest), allButUv), null)
+})
+
+test('resolvePayload returns dir + tag for a complete payload', () => {
+  const p = resolvePayload('/res', readerFor(completeManifest), allDirsExist)
+
   assert.ok(p)
   assert.match(p.dir, /agent-payload$/)
   assert.equal(p.tag, 'v1.2.3')
 })
 
-// ─── decideResidentRuntime ─────────────────────────────────────────
-
-const residentPayload = (overrides: Partial<PayloadInfo> = {}): PayloadInfo => ({
-  dir: '/res/agent-payload',
-  tag: 'v2.0.0',
-  schemaVersion: 2,
-  items: {
-    repo: { status: 'staged' },
-    uv: { status: 'staged' },
-    python: { status: 'staged' },
-    'site-packages': { status: 'staged' },
-    node: { status: 'staged' }
-  },
-  ...overrides
+test('the required items include uv — plugin lazy installs are mandatory', () => {
+  assert.deepEqual([...EMBEDDED_RUNTIME_ITEMS].sort(), ['node', 'python', 'repo', 'site-packages', 'uv'])
 })
 
-test('a complete schema-2 payload runs resident on a fresh machine', () => {
-  const d = decideResidentRuntime({
-    payload: residentPayload(),
-    checkoutExists: false,
-    checkoutManifest: null,
-    markerSaysDesktop: false
-  })
+// ─── findEmbeddedPython ────────────────────────────────────────────
 
-  assert.equal(d.resident, true)
-})
-
-test('resident even over an old desktop-managed checkout (marker or bundled manifest)', () => {
-  // Phase-1 materialized checkout: manifest says bundled.
-  assert.equal(
-    decideResidentRuntime({
-      payload: residentPayload(),
-      checkoutExists: true,
-      checkoutManifest: { installMode: 'bundled' },
-      markerSaysDesktop: true
-    }).resident,
-    true
-  )
-  // Pre-manifest desktop install: no manifest, but the desktop marker
-  // proves provenance.
-  assert.equal(
-    decideResidentRuntime({
-      payload: residentPayload(),
-      checkoutExists: true,
-      checkoutManifest: null,
-      markerSaysDesktop: true
-    }).resident,
-    true
-  )
-})
-
-test('never resident over a checkout the user owns', () => {
-  // Ejected / deliberate source install.
-  const ejected = decideResidentRuntime({
-    payload: residentPayload(),
-    checkoutExists: true,
-    checkoutManifest: { installMode: 'source' },
-    markerSaysDesktop: true
-  })
-
-  assert.equal(ejected.resident, false)
-  assert.match(ejected.reason, /source-managed/)
-
-  // CLI-first user: checkout exists, no manifest, no desktop marker.
-  const cliFirst = decideResidentRuntime({
-    payload: residentPayload(),
-    checkoutExists: true,
-    checkoutManifest: null,
-    markerSaysDesktop: false
-  })
-
-  assert.equal(cliFirst.resident, false)
-  assert.match(cliFirst.reason, /CLI-first/)
-})
-
-test('thin, pre-resident, and incomplete payloads never run resident', () => {
-  assert.match(
-    decideResidentRuntime({
-      payload: null,
-      checkoutExists: false,
-      checkoutManifest: null,
-      markerSaysDesktop: false
-    }).reason,
-    /thin/
-  )
-  // Phase-1 artifact: schemaVersion 1.
-  assert.match(
-    decideResidentRuntime({
-      payload: residentPayload({ schemaVersion: 1 }),
-      checkoutExists: false,
-      checkoutManifest: null,
-      markerSaysDesktop: false
-    }).reason,
-    /predates/
-  )
-  // uv is mandatory: runtime lazy installs for plugins depend on it.
-  const noUv = residentPayload()
-  noUv.items = { ...noUv.items, uv: { status: 'skipped' } }
-
-  const d = decideResidentRuntime({
-    payload: noUv,
-    checkoutExists: false,
-    checkoutManifest: null,
-    markerSaysDesktop: false
-  })
-
-  assert.equal(d.resident, false)
-  assert.match(d.reason, /missing: uv/)
-})
-
-// ─── findResidentPython ────────────────────────────────────────────
-
-test('findResidentPython picks the patch-versioned dir and needs a real binary', () => {
+test('findEmbeddedPython picks the patch-versioned dir and needs a real binary', () => {
   const fsStub = (dirs: string[], files: string[]) => ({
     readdirSync: (p: string) => {
-      if (!p.endsWith('python')) {throw new Error('ENOENT')}
+      if (!p.endsWith('python')) {
+        throw new Error('ENOENT')
+      }
 
       return dirs
     },
@@ -167,7 +93,7 @@ test('findResidentPython picks the patch-versioned dir and needs a real binary',
   })
 
   // Patch-versioned real dir wins over the minor alias (reverse sort).
-  const python = findResidentPython(
+  const python = findEmbeddedPython(
     '/res/agent-payload',
     'darwin',
     fsStub(
@@ -180,7 +106,7 @@ test('findResidentPython picks the patch-versioned dir and needs a real binary',
 
   // No python dir at all → null, not a throw.
   assert.equal(
-    findResidentPython('/res/agent-payload', 'darwin', {
+    findEmbeddedPython('/res/agent-payload', 'darwin', {
       readdirSync: () => {
         throw new Error('ENOENT')
       },
@@ -195,7 +121,7 @@ test('findResidentPython picks the patch-versioned dir and needs a real binary',
   const winRoot = 'win-res/agent-payload'
   const winExpected = ['win-res/agent-payload', 'python', 'cpython-3.11.15-windows-x86_64-none', 'python.exe'].join('/')
 
-  const winPython = findResidentPython(
+  const winPython = findEmbeddedPython(
     winRoot,
     'win32',
     fsStub(['cpython-3.11.15-windows-x86_64-none'], [winExpected]) as never
@@ -204,12 +130,27 @@ test('findResidentPython picks the patch-versioned dir and needs a real binary',
   assert.match(String(winPython), /python\.exe$/)
 })
 
-test('channel: bundled is always stable, source carries its own, absent means main', () => {
-  assert.equal(resolveChannel({ installMode: 'bundled', channel: 'main' }), 'stable')
-  assert.equal(resolveChannel({ installMode: 'source', channel: 'stable' }), 'stable')
-  assert.equal(resolveChannel({ installMode: 'source', channel: 'main' }), 'main')
-  assert.equal(resolveChannel(null), 'main')
-  assert.equal(resolveChannel({}), 'main')
+// ─── updateChannelFromConfig ───────────────────────────────────────
+
+test('channel comes from update.channel in config.yaml; absent means main', () => {
+  assert.equal(updateChannelFromConfig('update:\n  channel: stable\n'), 'stable')
+  assert.equal(updateChannelFromConfig('update:\n  channel: "stable"\n'), 'stable')
+  assert.equal(updateChannelFromConfig('update:\n  channel: main\n'), 'main')
+  assert.equal(updateChannelFromConfig('model:\n  provider: nous\n'), 'main')
+  assert.equal(updateChannelFromConfig(null), 'main')
+  assert.equal(updateChannelFromConfig(''), 'main')
+})
+
+test('channel parsing stays inside the update block', () => {
+  // A channel key in ANOTHER block must not leak into the answer.
+  const text = 'gateway:\n  channel: stable\nupdate:\n  interval: 1\nmodel:\n  channel: stable\n'
+
+  assert.equal(updateChannelFromConfig(text), 'main')
+
+  // The update block ends at the next top-level key.
+  const ended = 'update:\n  interval: 1\nother:\n  channel: stable\n'
+
+  assert.equal(updateChannelFromConfig(ended), 'main')
 })
 
 // ── latestReleaseFromLsRemote ───────────────────────────────────────

@@ -50,7 +50,7 @@ import { shouldLatchBackendStartFailure, shouldLatchRemoteReauthFailure } from '
 import { detectRemoteDisplay, isWindowsBinaryPathInWsl, isWslEnvironment } from './bootstrap-platform'
 import { decideBootstrapRepair } from './bootstrap-repair-guard'
 import { runBootstrap } from './bootstrap-runner'
-import { decideResidentRuntime, findResidentPython, latestReleaseFromLsRemote, resolveChannel, resolvePayload } from './bundled-runtime'
+import { findEmbeddedPython, latestReleaseFromLsRemote, resolvePayload, updateChannelFromConfig } from './bundled-runtime'
 import { applyConnectionChange, resolveTerminalConnection } from './connection-apply'
 import {
   authModeFromStatus,
@@ -2564,11 +2564,11 @@ async function checkUpdates() {
     }
   }
 
-  // Source install on the stable channel (an ejected bundled install, or a
-  // manual channel switch): compare against the newest release tag, not
-  // against the tip of main. A commits-behind-main count is meaningless
-  // vocabulary on this channel and reads as an alarming +N.
-  if (resolveChannel(readJson(INSTALL_MANIFEST_PATH) as any) === 'stable') {
+  // Source install on the stable channel (an ejected install, or a manual
+  // channel switch): compare against the newest release tag, not against
+  // the tip of main. A commits-behind-main count is meaningless vocabulary
+  // on this channel and reads as an alarming +N.
+  if (updateChannelFromConfig(readTextOrNull(path.join(HERMES_HOME, 'config.yaml'))) === 'stable') {
     return checkStableChannelUpdates()
   }
 
@@ -3719,6 +3719,14 @@ function readJson(filePath) {
   }
 }
 
+function readTextOrNull(filePath) {
+  try {
+    return fs.readFileSync(filePath, 'utf8')
+  } catch {
+    return null
+  }
+}
+
 // Bootstrap-complete marker helpers. The marker is written by whichever
 // installer ran: install.ps1, install.sh, the Rust bootstrap installer, or the
 // first-launch bootstrap runner. It is provenance ("a bootstrap finished
@@ -3737,48 +3745,29 @@ function readBootstrapMarker() {
   return readJson(BOOTSTRAP_COMPLETE_MARKER)
 }
 
-// ─── Bundled-runtime decisions (resident mode) ──────────────────────────────
-
-const INSTALL_MANIFEST_PATH = path.join(ACTIVE_HERMES_ROOT, '.hermes-install.json')
+// ─── Embedded-runtime facts ─────────────────────────────────────────────────
 
 /**
- * The resident-runtime decision for this launch: run the backend directly
- * out of the payload in resources, with no materialized checkout. Facts
- * are re-read on every call (cheap file reads) so an eject flips the
- * answer without an app restart.
+ * The embedded payload of this artifact, or null on external builds.
+ * Resolution re-reads cheap file facts on every call; the answer is a
+ * constant of the artifact in practice (the payload ships inside the
+ * sealed resources and never changes at runtime).
  */
-function residentRuntimeDecision() {
-  const marker = readBootstrapMarker() as any
-
-  return decideResidentRuntime({
-    payload: resolvePayload(process.resourcesPath),
-    checkoutExists: directoryExists(ACTIVE_HERMES_ROOT),
-    checkoutManifest: readJson(INSTALL_MANIFEST_PATH) as any,
-    // desktopVersion has been written by every desktop bootstrap since the
-    // marker existed; its presence is desktop provenance for the checkout.
-    markerSaysDesktop: Boolean(marker && typeof marker.desktopVersion === 'string')
-  })
+function embeddedPayload() {
+  return resolvePayload(process.resourcesPath)
 }
 
 /**
  * True when app updates go through electron-updater instead of git.
- * Reads the manifest on every call. An eject flips the manifest to source
- * mode, and the next check must honor that without an app restart.
- *
- * A resident launch is bundled BY CONSTRUCTION: the code came from the
- * app's own resources, so the checkout manifest (which may not even
- * exist) has no say.
+ * A constant of the artifact: embedded builds self-update, external
+ * builds never do. No machine state has a say — an eject replaces the
+ * whole app with a source-built external one.
  */
 function bundledUpdaterActive(): boolean {
   const stamp = INSTALL_STAMP as any
 
-  const manifest = residentRuntimeDecision().resident
-    ? { installMode: 'bundled' }
-    : (readJson(INSTALL_MANIFEST_PATH) as any)
-
   return shouldUseAppUpdater({
     stampHasPayload: Boolean(stamp && stamp.payload),
-    installMode: manifest && typeof manifest.installMode === 'string' ? manifest.installMode : null,
     isPackaged: app.isPackaged
   })
 }
@@ -4048,7 +4037,7 @@ function createActiveBackend(backendArgs) {
   }
 }
 
-// createResidentBackend — run the backend directly out of the payload in
+// createEmbeddedBackend — run the backend directly out of the payload in
 // the app's resources. Nothing is materialized: the payload CPython's
 // hermes-bundle.pth resolves repo/ and site-packages/ relative to itself,
 // so the spawn needs NO PYTHONPATH and survives renames, Gatekeeper
@@ -4058,17 +4047,17 @@ function createActiveBackend(backendArgs) {
 //   writes (codesign would break; the mount may be read-only anyway).
 // - HERMES_LAZY_INSTALL_TARGET: plugin/lazy deps install into a writable
 //   overlay via the existing uv-pip --target machinery in lazy_deps.
-function createResidentBackend(backendArgs) {
+function createEmbeddedBackend(backendArgs) {
   const payload = resolvePayload(process.resourcesPath)
 
   if (!payload) {
     return null
   }
 
-  const command = findResidentPython(payload.dir)
+  const command = findEmbeddedPython(payload.dir)
 
   if (!command) {
-    rememberLog(`[resident] payload at ${payload.dir} has no runnable CPython; falling back to checkout resolution`)
+    rememberLog(`[embedded] payload at ${payload.dir} has no runnable CPython — the artifact is damaged`)
 
     return null
   }
@@ -4102,41 +4091,47 @@ function createResidentBackend(backendArgs) {
 
   return {
     kind: 'python',
-    label: `Hermes resident bundle (${payload.tag || 'untagged'})`,
+    label: `Hermes embedded runtime (${payload.tag || 'untagged'})`,
     command,
     args: ['-m', 'hermes_cli.main', ...backendArgs],
     env,
     root: repoRoot,
-    resident: true,
+    embedded: true,
     bootstrap: false,
     shell: false
   }
 }
 
 function resolveHermesBackend(backendArgs) {
-  // 0. Resident bundle — the payload in resources IS the runtime. When the
-  //    decision says resident, nothing is materialized, no bootstrap runs,
-  //    and the checkout (if any) is simply not preferred: reversible, and
-  //    an eject flips the decision on the next resolution. This must come
-  //    before adoption: adoption exists to migrate legacy checkouts into
-  //    the MATERIALIZED bundled path, which a resident launch has no use
-  //    for. The HERMES_DESKTOP_HERMES_ROOT escape hatch still wins — it
-  //    exists precisely to point a packaged app at a developer checkout.
+  // 0. Embedded runtime — an Embedded artifact ALWAYS runs the backend out
+  //    of its own resources. No checkout examination, no contest: backend
+  //    selection is a constant of the artifact. Checkouts on the machine
+  //    belong to the CLI and are never consulted here. The
+  //    HERMES_DESKTOP_HERMES_ROOT escape hatch still wins — it exists
+  //    precisely to point a packaged app at a developer checkout.
   const overrideRoot = process.env.HERMES_DESKTOP_HERMES_ROOT && path.resolve(process.env.HERMES_DESKTOP_HERMES_ROOT)
-  const resident = overrideRoot ? { resident: false, reason: 'HERMES_DESKTOP_HERMES_ROOT override' } : residentRuntimeDecision()
+  const payload = overrideRoot ? null : embeddedPayload()
 
-  if (resident.resident) {
-    const backend = createResidentBackend(backendArgs)
+  if (payload) {
+    const backend = createEmbeddedBackend(backendArgs)
 
     if (backend) {
-      rememberLog(`[resident] running from the app bundle: ${resident.reason}`)
+      rememberLog(`[embedded] running from the app bundle (${payload.tag || 'untagged'})`)
 
       return backend
     }
-    // A complete manifest but an unusable payload (no CPython found) is a
-    // broken artifact; fall through to the checkout/bootstrap chain.
-  } else {
-    rememberLog(`[resident] not resident: ${resident.reason}`)
+
+    // A payload that resolves but yields no runnable interpreter is a
+    // damaged artifact. Do NOT fall through to a checkout: a silent
+    // fallback hides the build defect. Surface the failure instead.
+    throw new Error(
+      `The embedded runtime at ${payload.dir} is damaged (no runnable CPython). ` +
+        'Reinstall Hermes from the website.'
+    )
+  }
+
+  if (overrideRoot) {
+    rememberLog('[embedded] skipped: HERMES_DESKTOP_HERMES_ROOT override')
   }
 
   // 1. Explicit override -- HERMES_DESKTOP_HERMES_ROOT points at a developer
