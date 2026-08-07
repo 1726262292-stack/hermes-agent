@@ -89,7 +89,7 @@
         #   nix run .#build-desktop-app-bundle -- --tag=vX.Y.Z
         build-desktop-app-bundle = pkgs.writeShellApplication {
           name = "build-desktop-app-bundle";
-          runtimeInputs = [ pkgs.nodejs_22 pkgs.uv pkgs.git ];
+          runtimeInputs = [ pkgs.nodejs_26 pkgs.uv pkgs.git ];
           text = ''
             if [ ! -f scripts/build-bundled-desktop.mjs ]; then
               echo "error: run from a hermes-agent checkout root" >&2

@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 // build-bundled-desktop.mjs — build the fully bundled desktop installer
-// locally, on any of the three platforms. This is the same sequence as
-// .github/workflows/desktop-bundled-release.yml, in one runnable script:
+// locally, on any of the three platforms.
 //
 //   1. preflight: uv, git, npm exist; a release tag is resolvable
 //   2. npm ci at the repo root
 //   3. build ui-tui (with hermes-ink) and the dashboard SPA
-//   4. download the payload node dist for this platform (22.x)
+//   4. download the payload node dist (the exact host node version)
 //   5. npm run build in apps/desktop with HERMES_DESKTOP_BUNDLED=1
 //   6. npm run builder -- <platform targets>
 //
@@ -27,7 +26,6 @@ import { fileURLToPath } from "node:url"
 import { hostTarBin } from "../apps/desktop/scripts/stage-agent-payloads.mjs"
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
-const PAYLOAD_NODE_MAJOR = "22" // matches NODE_VERSION in scripts/install.sh
 
 const args = process.argv.slice(2)
 const tagArg = args.find((a) => a.startsWith("--tag="))?.slice("--tag=".length)
@@ -66,6 +64,86 @@ for (const tool of ["uv", "git", "npm", "tar"]) {
   if (probe.status !== 0) {
     fail(`required tool missing: ${tool}`)
   }
+}
+
+// Toolchain gates. The build's output depends on these tools, so a wrong
+// version makes a silently different artifact (the first Windows build
+// shipped a wrong-arch uv exactly this way). The rules come from ONE
+// source — package.json "engines" — and the embedded runtimes are pinned
+// to the EXACT host versions the gates approved:
+//   node — the payload node dist is downloaded at the host node version.
+//   uv   — the staged uv IS the host binary, copied (stageUvAndPython).
+//   npm  — ships inside the node dist; it cannot be chosen separately,
+//          so the host npm is gated by engines and the payload npm is
+//          whatever the pinned node dist bundles.
+export function parseVersion(text) {
+  const match = String(text).match(/(\d+)\.(\d+)\.(\d+)/)
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null
+}
+
+export function compareVersions(a, b) {
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] !== b[i]) return a[i] - b[i]
+  }
+  return 0
+}
+
+// The subset of semver ranges that package.json engines actually uses:
+// space-separated comparators AND together, `||` separates alternatives.
+// An unparseable comparator fails closed.
+export function satisfiesRange(version, range) {
+  return String(range).split("||").some((alternative) => {
+    const comparators = alternative.trim().split(/\s+/).filter(Boolean)
+    if (comparators.length === 0) return false
+    return comparators.every((comparator) => {
+      const m = comparator.match(/^(>=|<=|>|<|=)?v?(\d+)\.(\d+)\.(\d+)$/)
+      if (!m) return false
+      const cmp = compareVersions(version, [Number(m[2]), Number(m[3]), Number(m[4])])
+      switch (m[1]) {
+        case ">=": return cmp >= 0
+        case "<=": return cmp <= 0
+        case ">": return cmp > 0
+        case "<": return cmp < 0
+        default: return cmp === 0
+      }
+    })
+  })
+}
+
+export function uvBannerProblem(banner) {
+  return /\([a-z0-9_]+-[a-z0-9]+-[a-z]+/.test(String(banner))
+    ? null
+    : "its --version prints no build triple; the payload arch guard needs one (official uv 0.12+, or any nix/source build)"
+}
+
+const engines = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf8")).engines || {}
+
+// The approved host toolchain. Filled by the gates below; the payload
+// stages embed THESE versions, so gate == embed by construction.
+const HOST_TOOLCHAIN = { node: null, npm: null, uvBanner: null }
+
+for (const tool of ["node", "npm"]) {
+  const text = tool === "node" ? process.version : capture("npm --version")
+  const version = parseVersion(text)
+  if (!version) {
+    fail(`${tool}: cannot parse a version from ${JSON.stringify(text)}`)
+  }
+  const range = engines[tool]
+  if (range && !satisfiesRange(version, range)) {
+    fail(`${tool} ${version.join(".")} does not satisfy package.json engines ${JSON.stringify(range)} — the build would make a different artifact`)
+  }
+  HOST_TOOLCHAIN[tool] = version
+  console.log(`[build-bundled] ${tool} ${version.join(".")} (engines: ${range || "unconstrained"})`)
+}
+
+{
+  const uvBanner = capture("uv --version")
+  const problem = uvBannerProblem(uvBanner)
+  if (problem) {
+    fail(`uv (${uvBanner}) would make a broken artifact: ${problem}`)
+  }
+  HOST_TOOLCHAIN.uvBanner = uvBanner
+  console.log(`[build-bundled] ${uvBanner} (staged into the payload as-is)`)
 }
 
 let tag = tagArg
@@ -112,6 +190,7 @@ console.log(`[build-bundled] tag=${tag} platform=${process.platform}-${process.a
 // resolution for the workspace builds below.
 run("npm", ["ci", "--no-audit", "--no-fund"], {
   env: {
+    ...process.env, // spawnSync env REPLACES the child environment; keep PATH etc.
     "CI": "true" // skip annoying unicode install banner
   }
 })
@@ -119,17 +198,22 @@ run("npm", ["run", "build", "--workspace", "ui-tui"])
 run("npm", ["run", "build", "--workspace", "web"])
 
 // ── 4. payload node dist ────────────────────────────────────────────────────
+// Pinned to the EXACT host node version: the JS surfaces were built and
+// npm-installed by the host node, and the payload node runs them at
+// runtime. A different version is a different artifact. This also means
+// the host node must be an official nodejs.org release — a patched build
+// whose version does not exist upstream fails here, loudly.
 
 const distName = { linux: "linux", darwin: "darwin", win32: "win" }[process.platform]
 const distArch = { x64: "x64", arm64: "arm64" }[process.arch]
 const distExt = process.platform === "win32" ? "zip" : process.platform === "darwin" ? "tar.gz" : "tar.xz"
 
+const version = `v${HOST_TOOLCHAIN.node.join(".")}`
 const index = JSON.parse(
   execSync(`curl -fsSL https://nodejs.org/dist/index.json`, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 })
 )
-const version = index.find((e) => e.version.startsWith(`v${PAYLOAD_NODE_MAJOR}.`))?.version
-if (!version) {
-  fail(`no node ${PAYLOAD_NODE_MAJOR}.x release found in nodejs.org index`)
+if (!index.some((e) => e.version === version)) {
+  fail(`host node ${version} is not an official nodejs.org release — cannot embed the exact build toolchain`)
 }
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "hermes-node-payload-"))

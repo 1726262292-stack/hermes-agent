@@ -109,6 +109,9 @@ jobs:
       # ── Node ──────────────────────────────────────────────────────────
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
+          # The build script embeds the EXACT host node version into the
+          # payload. 26 matches NODE_VERSION in scripts/install.sh, so an
+          # embedded install and a source install run the same node major.
           node-version: 26
           cache: npm
 
