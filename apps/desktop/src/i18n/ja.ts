@@ -2033,6 +2033,13 @@ export const ja = defineLocale({
     versionDetailsCommit: 'コミット',
     versionDetailsSource: 'ソース',
     versionDetailsDistribution: '配布形式',
+    versionDetailsDistributionDesktop: 'デスクトップアプリ',
+    versionDetailsArtifact: 'アーティファクト',
+    versionDetailsArtifactEmbedded: (tag: string | null) =>
+      tag ? `内蔵ランタイム（${tag}）` : '内蔵ランタイム',
+    versionDetailsArtifactExternal: '外部（マシンのランタイムを使用）',
+    versionDetailsRuntime: 'ランタイム',
+    versionDetailsRuntimeEmbedded: 'アプリ内蔵のランタイム',
     versionDetailsDirty: 'このパッケージは変更のあるソースツリーからビルドされました。',
     versionDetailsDirtyUnknown: '変更のあるソースツリーからビルドされました。最後のリリースからの変更数は不明です。',
     connectionRetry: '接続を確認してもう一度試してください。',

@@ -1103,6 +1103,10 @@ let bootstrapFailure = null
 // Latched non-bootstrap backend spawn failure — stops getConnection() from
 // respawning hermes serve backend children in a tight loop while boot is broken.
 let backendStartFailure = null
+// The backend the running session actually spawned (label + tree). Version
+// details surface it beside the build stamp so About shows both install
+// axes: what the artifact is, and which runtime tree executes.
+let activeBackendInfo = null
 // Latched CONFIRMED remote reauth failure. Remote failures deliberately do not
 // latch via backendStartFailure (they're usually transient and must stay
 // retryable), but a rejected session cannot self-heal — and the non-latching
@@ -8737,6 +8741,13 @@ async function startHermes() {
 
     await advanceBootProgress('backend.spawn', `Starting Hermes backend via ${backend.label}`, 84)
     rememberLog(`Starting Hermes backend via ${backend.label}`)
+    // About → version details reads this: which tree the backend actually
+    // runs from is an install-axis fact users need when reporting issues.
+    activeBackendInfo = {
+      label: backend.label || null,
+      embedded: backend.embedded === true,
+      root: backend.root || null
+    }
 
     const hermesProcess = spawn(
       backend.command,
@@ -11733,7 +11744,12 @@ ipcMain.handle('hermes:version', () => ({
   electronVersion: process.versions.electron,
   nodeVersion: process.versions.node,
   platform: process.platform,
-  hermesRoot: resolveUpdateRoot()
+  hermesRoot: resolveUpdateRoot(),
+  // The two install axes (About renders them as Artifact / Runtime):
+  // what this build carries, and which tree the backend runs from.
+  artifact: INSTALL_STAMP?.payload === true ? 'embedded' : 'external',
+  payloadTag: INSTALL_STAMP?.payload === true ? (INSTALL_STAMP.tag ?? null) : null,
+  runtime: activeBackendInfo
 }))
 
 // ===========================================================================

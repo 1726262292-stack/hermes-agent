@@ -1972,6 +1972,13 @@ export const zhHant = defineLocale({
     versionDetailsCommit: '提交',
     versionDetailsSource: '來源',
     versionDetailsDistribution: '發行方式',
+    versionDetailsDistributionDesktop: '桌面應用程式',
+    versionDetailsArtifact: '構件',
+    versionDetailsArtifactEmbedded: (tag: string | null) =>
+      tag ? `內嵌執行環境（${tag}）` : '內嵌執行環境',
+    versionDetailsArtifactExternal: '外部（使用本機執行環境）',
+    versionDetailsRuntime: '執行環境',
+    versionDetailsRuntimeEmbedded: '應用程式內建的執行環境',
     versionDetailsDirty: '此套件從有未提交變更的來源樹建置。',
     versionDetailsDirtyUnknown: '從有未提交變更的來源樹建置。自上次發布以來的變更數量未知。',
     connectionRetry: '請檢查網路連線後重試。',

@@ -2392,6 +2392,13 @@ export const zh: Translations = {
     versionDetailsCommit: '提交',
     versionDetailsSource: '来源',
     versionDetailsDistribution: '发行方式',
+    versionDetailsDistributionDesktop: '桌面应用',
+    versionDetailsArtifact: '构件',
+    versionDetailsArtifactEmbedded: (tag: string | null) =>
+      tag ? `内嵌运行时（${tag}）` : '内嵌运行时',
+    versionDetailsArtifactExternal: '外部（使用本机运行时）',
+    versionDetailsRuntime: '运行时',
+    versionDetailsRuntimeEmbedded: '应用内置的运行时',
     versionDetailsDirty: '此软件包从有未提交更改的源代码树构建。',
     versionDetailsDirtyUnknown: '从有未提交更改的源代码树构建。自上次发布以来的更改数量未知。',
     connectionRetry: '请检查网络连接后重试。',

@@ -13,7 +13,23 @@ export function VersionDetails({ version }: { version: DesktopVersionInfo }) {
   const u = t.updates
   const unknownDistance = version.dirty && version.distance == null
   const source = version.source === 'ci' ? 'CI' : version.source ? version.source[0].toUpperCase() + version.source.slice(1) : null
-  const distribution = version.distribution === 'nix' ? 'Nix' : version.distribution === 'docker' ? 'Docker' : null
+
+  const distribution =
+    version.distribution === 'nix' ? 'Nix'
+    : version.distribution === 'docker' ? 'Docker'
+    : version.distribution === 'desktop-app' ? u.versionDetailsDistributionDesktop
+    : null
+
+  const artifact =
+    version.artifact === 'embedded' ? u.versionDetailsArtifactEmbedded(version.payloadTag ?? null)
+    : version.artifact === 'external' ? u.versionDetailsArtifactExternal
+    : null
+
+  const runtime = version.runtime
+    ? version.runtime.embedded
+      ? u.versionDetailsRuntimeEmbedded
+      : (version.runtime.root ?? version.runtime.label ?? null)
+    : null
 
   return (
     <dl className="grid gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-3 text-sm">
@@ -52,6 +68,18 @@ export function VersionDetails({ version }: { version: DesktopVersionInfo }) {
         <div className="flex justify-between gap-4">
           <dt className="text-muted-foreground">{u.versionDetailsDistribution}</dt>
           <dd>{distribution}</dd>
+        </div>
+      )}
+      {artifact && (
+        <div className="flex justify-between gap-4">
+          <dt className="text-muted-foreground">{u.versionDetailsArtifact}</dt>
+          <dd className="text-right">{artifact}</dd>
+        </div>
+      )}
+      {runtime && (
+        <div className="flex justify-between gap-4">
+          <dt className="text-muted-foreground">{u.versionDetailsRuntime}</dt>
+          <dd className="break-all text-right">{runtime}</dd>
         </div>
       )}
       {version.dirty && (

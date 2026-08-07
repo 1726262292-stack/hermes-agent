@@ -2201,6 +2201,13 @@ export const en: Translations = {
     versionDetailsCommit: 'Commit',
     versionDetailsSource: 'Source',
     versionDetailsDistribution: 'Distribution',
+    versionDetailsDistributionDesktop: 'Desktop app',
+    versionDetailsArtifact: 'Artifact',
+    versionDetailsArtifactEmbedded: (tag: string | null) =>
+      tag ? `Embedded runtime (${tag})` : 'Embedded runtime',
+    versionDetailsArtifactExternal: 'External (uses the machine runtime)',
+    versionDetailsRuntime: 'Runtime',
+    versionDetailsRuntimeEmbedded: 'The runtime inside this app',
     versionDetailsDirty: 'This package was built from a dirty source tree.',
     versionDetailsDirtyUnknown: 'Built from a dirty source tree. The number of changes since the last release is unknown.',
     connectionRetry: 'Check your connection and try again.',

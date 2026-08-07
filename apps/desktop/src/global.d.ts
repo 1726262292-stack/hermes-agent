@@ -355,8 +355,14 @@ export interface DesktopVersionInfo {
   nodeVersion: string
   platform: string
   hermesRoot: string
-  distribution?: 'docker' | 'nix'
+  distribution?: 'desktop-app' | 'docker' | 'nix'
   source?: 'build' | 'ci' | 'docker' | 'fallback' | 'git' | 'local' | 'nix' | 'unknown'
+  /** What this build carries: an embedded runtime, or nothing (external). */
+  artifact?: 'embedded' | 'external'
+  /** The release the embedded payload was staged from (embedded only). */
+  payloadTag?: string | null
+  /** The backend this session actually spawned. Null before first spawn. */
+  runtime?: { label: string | null; embedded: boolean; root: string | null } | null
 }
 
 export type DesktopUninstallMode = 'full' | 'gui' | 'lite'

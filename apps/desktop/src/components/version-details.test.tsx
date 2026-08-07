@@ -62,4 +62,53 @@ describe('VersionDetails', () => {
     expect(screen.getByText('Distribution')).toBeTruthy()
     expect(screen.getByText('Docker')).toBeTruthy()
   })
+
+  it('shows both install axes for an embedded build running its payload', () => {
+    render(
+      <I18nProvider configClient={null} initialLocale="en">
+        <VersionDetails
+          version={{
+            ...baseVersion,
+            artifact: 'embedded',
+            distribution: 'desktop-app',
+            payloadTag: 'v0.20.0',
+            runtime: { label: 'Hermes embedded runtime (v0.20.0)', embedded: true, root: '/Applications/Hermes.app/…/repo' }
+          }}
+        />
+      </I18nProvider>
+    )
+
+    expect(screen.getByText('Artifact')).toBeTruthy()
+    expect(screen.getByText('Embedded runtime (v0.20.0)')).toBeTruthy()
+    expect(screen.getByText('Runtime')).toBeTruthy()
+    expect(screen.getByText('The runtime inside this app')).toBeTruthy()
+  })
+
+  it('shows the checkout path when an external build runs a machine runtime', () => {
+    render(
+      <I18nProvider configClient={null} initialLocale="en">
+        <VersionDetails
+          version={{
+            ...baseVersion,
+            artifact: 'external',
+            runtime: { label: 'Hermes at /home/u/.hermes/hermes-agent', embedded: false, root: '/home/u/.hermes/hermes-agent' }
+          }}
+        />
+      </I18nProvider>
+    )
+
+    expect(screen.getByText('External (uses the machine runtime)')).toBeTruthy()
+    expect(screen.getByText('/home/u/.hermes/hermes-agent')).toBeTruthy()
+  })
+
+  it('omits the runtime row before the first backend spawn', () => {
+    render(
+      <I18nProvider configClient={null} initialLocale="en">
+        <VersionDetails version={{ ...baseVersion, artifact: 'embedded', runtime: null }} />
+      </I18nProvider>
+    )
+
+    expect(screen.getByText('Artifact')).toBeTruthy()
+    expect(screen.queryByText('Runtime')).toBeNull()
+  })
 })
