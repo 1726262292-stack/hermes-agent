@@ -223,7 +223,11 @@ def main() -> int:
     parser.add_argument("--distance", type=int, default=None, help="Override commit distance")
     parser.add_argument("--commit-date", type=int, default=None, help="Override commit timestamp (Unix epoch seconds)")
     parser.add_argument("--source", default="local", help="Stamp source label")
-    parser.add_argument("--distribution", choices=("docker", "nix"), help="Package distribution")
+    parser.add_argument(
+        "--distribution",
+        choices=("docker", "nix", "desktop-app"),
+        help="Package distribution (the steward that replaces this tree)",
+    )
     args = parser.parse_args()
 
     stamp = write_stamp(

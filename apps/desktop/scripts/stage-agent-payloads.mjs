@@ -346,6 +346,7 @@ function stageRepo(tag, outDir) {
     "--base-version", tag.slice(1),
     "--distance", "0",
     "--source", "ci",
+    "--distribution", "desktop-app",
   ])
   // The install manifest is BUILD metadata for a resident bundle: the
   // payload repo is always desktop-managed, always the stable channel,
