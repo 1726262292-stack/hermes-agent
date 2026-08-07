@@ -79,6 +79,26 @@
         web = full.hermesWeb;
         desktop = full.hermesDesktop;
 
+        # A self-contained builder for the bundled (embedded-runtime)
+        # desktop artifact. The derivation is pure — it only wraps the
+        # pinned toolchain around scripts/build-bundled-desktop.mjs. The
+        # WRAPPED SCRIPT runs impurely on a source tree: it downloads the
+        # payload node dist, CPython, and wheels, and electron-builder
+        # needs network and (on macOS) codesign access. Run it from a
+        # checkout at a release tag:
+        #   nix run .#build-desktop-app-bundle -- --tag=vX.Y.Z --no-install
+        build-desktop-app-bundle = pkgs.writeShellApplication {
+          name = "build-desktop-app-bundle";
+          runtimeInputs = [ pkgs.nodejs_22 pkgs.uv pkgs.git ];
+          text = ''
+            if [ ! -f scripts/build-bundled-desktop.mjs ]; then
+              echo "error: run from a hermes-agent checkout root" >&2
+              exit 1
+            fi
+            exec node scripts/build-bundled-desktop.mjs "$@"
+          '';
+        };
+
         update-npm-lockfile = full.hermesNpmLib.updateNpmLockfile;
       };
     };
