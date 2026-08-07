@@ -47,12 +47,18 @@ function fail(message) {
 
 function run(cmd, argv, opts = {}) {
   console.log(`[build-bundled] $ ${cmd} ${argv.join(" ")}`)
-  // shell mode (needed on Windows for npm.cmd) joins argv with bare
-  // spaces, so an argument with spaces — the signing publisherName —
-  // would be re-split. Quote those arguments ourselves.
+  // shell mode is for npm.cmd on Windows. It forbids arguments with
+  // spaces: cmd.exe re-splits them and no quoting survives npm's own
+  // re-spawn. Anything space-valued must travel as an environment
+  // variable instead (see run-electron-builder.mjs for signing).
   const shell = process.platform === "win32"
-  const safeArgv = shell ? argv.map((a) => (/\s/.test(a) ? `"${a}"` : a)) : argv
-  const result = spawnSync(cmd, safeArgv, { stdio: "inherit", cwd: REPO_ROOT, shell, ...opts })
+  if (shell) {
+    const bad = argv.find((a) => /\s/.test(a))
+    if (bad) {
+      fail(`argument with whitespace cannot cross the Windows shell: ${JSON.stringify(bad)} — pass it via environment instead`)
+    }
+  }
+  const result = spawnSync(cmd, argv, { stdio: "inherit", cwd: REPO_ROOT, shell, ...opts })
   if (result.status !== 0) {
     fail(`${cmd} exited ${result.status}`)
   }

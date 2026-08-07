@@ -213,20 +213,15 @@ jobs:
           AZURE_SIGN_PUBLISHER: ${{ vars.AZURE_SIGN_PUBLISHER }}
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: |
-          SIGN_ARGS=()
+          # Windows signing turns on inside run-electron-builder.mjs when the
+          # AZURE_SIGN_* variables above are present. It cannot ride through
+          # -c arguments: the publisherName contains spaces, which do not
+          # survive the cmd.exe hops on the Windows runners.
           MATRIX_LABEL="${{ matrix.label }}"
           if [[ "$MATRIX_LABEL" == win32-* ]] && [ -n "$AZURE_SIGN_ENDPOINT" ] && [ -n "$AZURE_CLIENT_ID" ]; then
             echo "Windows signing: Azure Trusted Signing at $AZURE_SIGN_ENDPOINT"
-            SIGN_ARGS+=(
-              "-c.win.signAndEditExecutable=true"
-              "-c.win.sign.type=azure"
-              "-c.win.sign.endpoint=$AZURE_SIGN_ENDPOINT"
-              "-c.win.sign.codeSigningAccountName=$AZURE_SIGN_ACCOUNT"
-              "-c.win.sign.certificateProfileName=$AZURE_SIGN_PROFILE"
-              "-c.win.sign.publisherName=$AZURE_SIGN_PUBLISHER"
-            )
           fi
-          node scripts/build-bundled-desktop.mjs --tag="$HERMES_BUNDLE_TAG" -- "${SIGN_ARGS[@]}"
+          node scripts/build-bundled-desktop.mjs --tag="$HERMES_BUNDLE_TAG"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

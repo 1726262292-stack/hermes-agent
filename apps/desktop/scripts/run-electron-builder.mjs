@@ -48,6 +48,28 @@ if (dist && fs.existsSync(distBinary(dist))) {
 }
 args.push(...process.argv.slice(2))
 
+// Windows signing config is composed HERE, from the AZURE_SIGN_* variables,
+// not passed down as -c arguments. The publisherName contains spaces and
+// commas, and no quoting survives the cmd.exe hops between the outer build
+// script, npm's lifecycle spawn, and this script. This spawn is the first
+// one with no shell in between, so values pass through verbatim.
+if (
+  args.includes("--win") &&
+  process.env.AZURE_SIGN_ENDPOINT &&
+  process.env.AZURE_CLIENT_ID &&
+  !args.some((a) => a.startsWith("-c.win.sign"))
+) {
+  console.log(`[run-electron-builder] Windows signing: Azure Trusted Signing at ${process.env.AZURE_SIGN_ENDPOINT}`)
+  args.push(
+    "-c.win.signAndEditExecutable=true",
+    "-c.win.sign.type=azure",
+    `-c.win.sign.endpoint=${process.env.AZURE_SIGN_ENDPOINT}`,
+    `-c.win.sign.codeSigningAccountName=${process.env.AZURE_SIGN_ACCOUNT}`,
+    `-c.win.sign.certificateProfileName=${process.env.AZURE_SIGN_PROFILE}`,
+    `-c.win.sign.publisherName=${process.env.AZURE_SIGN_PUBLISHER}`
+  )
+}
+
 const result = spawnSync(process.execPath, [electronBuilderCli(), ...args], {
   stdio: "inherit",
 })
