@@ -316,6 +316,38 @@ Do not ask the agent to `patch` `~/.hermes/cron/jobs.json` directly. Use the `cr
 Write guards apply to `write_file` and `patch` only. The `terminal` tool runs as the same OS user and can still `cat` or overwrite denied paths via shell commands. The denylist reduces accidental damage and gives models a clear stop signal; it does not sandbox a hostile or compromised agent.
 :::
 
+## Project-level `.hermesignore` {#hermesignore}
+
+A `.hermesignore` file committed at the workspace root blocks the agent's file tools — `read_file`, `write_file`, `patch`, and `search_files` — from touching matched paths. Unlike the built-in denylists above, it is **repo-scoped**: a team commits one file and every Hermes session working in that checkout honors it.
+
+The syntax is gitignore syntax:
+
+```gitignore
+# Comments and blank lines are skipped
+*.pem                 # glob patterns
+secrets/              # trailing-slash directory patterns
+docs/internal/**      # ** recursive globs
+build                 # bare names match files AND directory subtrees
+*.env
+!example.env          # ! negation — last match wins
+```
+
+Discovery walks up from the terminal's current working directory (and from the target file's own directory) to the repository root — the first directory containing `.hermesignore` wins, and the walk stops at the directory containing `.git`. Parsed patterns are cached per file and re-read automatically when the file changes.
+
+Blocked access returns an error naming `.hermesignore`, and matched paths are filtered out of `search_files` results. The ignore file itself is never hidden, so the agent can always read the policy blocking it.
+
+Disable the guard entirely with:
+
+```yaml
+# ~/.hermes/config.yaml
+security:
+  hermesignore_enabled: false   # default: true
+```
+
+:::note Same defense-in-depth caveat
+`.hermesignore` gates the file tools only. The `terminal` tool runs shell commands as the same OS user and can still `cat` a matched file, and MCP servers perform their own I/O. Treat it as a clear stop signal for the model and a guard against accidental access — not a sandbox for a hostile agent.
+:::
+
 ## User Authorization (Gateway)
 
 When running the messaging gateway, Hermes controls who can interact with the bot through a layered authorization system.

@@ -588,6 +588,24 @@ def _is_blocked_device(filepath: str, base_dir: str | Path | None = None) -> boo
     return False
 
 
+def _check_hermesignore_path(resolved_path: str, task_id: str = "default") -> str | None:
+    """Return an error when *resolved_path* matches the project's ``.hermesignore``.
+
+    Thin wrapper around :func:`tools.hermesignore.check_hermesignore` that
+    fails open on import/runtime errors — this is a project-convenience
+    guard layered on top of the hard sensitive-path denylist, not a
+    replacement for it. See ``tools/hermesignore.py`` for syntax and the
+    terminal/MCP limitation.
+    """
+    try:
+        from tools.hermesignore import check_hermesignore
+
+        return check_hermesignore(resolved_path, task_id)
+    except Exception:
+        logger.debug("hermesignore check failed for %s", resolved_path, exc_info=True)
+        return None
+
+
 def _search_result_read_block_error(path: str, task_id: str = "default") -> str | None:
     """Return the read-safety error for a search result path.
 
@@ -599,8 +617,11 @@ def _search_result_read_block_error(path: str, task_id: str = "default") -> str 
     try:
         resolved = _resolve_path_for_task(path, task_id)
     except (OSError, ValueError, RuntimeError):
-        return get_read_block_error(path)
-    return get_read_block_error(str(resolved))
+        return get_read_block_error(path) or _check_hermesignore_path(path, task_id)
+    return (
+        get_read_block_error(str(resolved))
+        or _check_hermesignore_path(str(resolved), task_id)
+    )
 
 
 def _filter_read_blocked_search_results(result, task_id: str = "default") -> int:
@@ -699,6 +720,13 @@ def _check_sensitive_path(filepath: str, task_id: str = "default") -> str | None
             "Agent cannot modify security-sensitive configuration. "
             "Edit ~/.hermes/config.yaml directly or use 'hermes config' instead."
         )
+    # Project-level .hermesignore (gitignore syntax at the workspace root)
+    # blocks agent writes the same way it blocks reads/searches. Checked here
+    # so write_file_tool and patch_tool share one choke point. See
+    # tools/hermesignore.py for syntax and the terminal/MCP limitation.
+    ignore_error = _check_hermesignore_path(resolved, task_id)
+    if ignore_error:
+        return ignore_error
     return None
 
 
@@ -1356,6 +1384,13 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 2000, task_id: str =
         block_error = get_read_block_error(str(_resolved))
         if block_error:
             return tool_error(block_error)
+
+        # ── .hermesignore guard ───────────────────────────────────────
+        # Project-level agent file-access ignore file (gitignore syntax,
+        # committed at the workspace root). See tools/hermesignore.py.
+        ignore_error = _check_hermesignore_path(str(_resolved), task_id)
+        if ignore_error:
+            return tool_error(ignore_error)
 
         # ── Negative-result cache ─────────────────────────────────────
         # If we already discovered this path doesn't exist (within TTL),
@@ -2086,6 +2121,11 @@ def search_tool(pattern: str, target: str = "content", path: str = ".",
         block_error = get_read_block_error(str(resolved_path) if resolved_path else path)
         if block_error:
             return tool_error(block_error)
+        ignore_error = _check_hermesignore_path(
+            str(resolved_path) if resolved_path else path, task_id
+        )
+        if ignore_error:
+            return tool_error(ignore_error)
 
         # ── Negative-result cache ─────────────────────────────────────
         # Search returns "Path not found: <path>" when the search root
@@ -2115,7 +2155,8 @@ def search_tool(pattern: str, target: str = "content", path: str = ".",
         if omitted:
             result_dict["_omitted"] = (
                 f"{omitted} result(s) omitted because they target credential, "
-                "token, cache, or secret-bearing environment files."
+                "token, cache, or secret-bearing environment files, or paths "
+                "excluded by the project's .hermesignore."
             )
 
         # Populate negative cache when search root was missing. No early

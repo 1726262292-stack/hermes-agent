@@ -2156,6 +2156,14 @@ DEFAULT_CONFIG = {
         # for restricted networks, audited environments, or air-gapped
         # systems where any runtime install is unacceptable.
         "allow_lazy_installs": True,
+        # Honor a project-level `.hermesignore` file (gitignore syntax at the
+        # workspace root) that blocks the agent's FILE TOOLS — read_file,
+        # write_file, patch, search_files — from touching matched paths
+        # (Cursor .cursorignore parity). Search results under ignored paths
+        # are filtered out. Does NOT gate the terminal tool or MCP servers —
+        # shell commands run as the same OS user and can still read matched
+        # files. Set to false to disable the guard entirely.
+        "hermesignore_enabled": True,
     },
 
     "cron": {
