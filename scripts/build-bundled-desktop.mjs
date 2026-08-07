@@ -111,7 +111,12 @@ export function satisfiesRange(version, range) {
 }
 
 export function uvBannerProblem(banner) {
-  return /\([a-z0-9_]+-[a-z0-9]+-[a-z]+/.test(String(banner))
+  // A build triple is three dash-joined words that end in letters
+  // (aarch64-pc-windows-msvc). Its position varies: nix builds print it
+  // first in the parens, official builds put a commit hash and a date
+  // before it. Match it anywhere — the date (2026-07-31) cannot match
+  // because its last segment is digits.
+  return /[a-z0-9_]+-[a-z0-9]+-[a-z][a-z0-9-]*/.test(String(banner))
     ? null
     : "its --version prints no build triple; the payload arch guard needs one (official uv 0.12+, or any nix/source build)"
 }
