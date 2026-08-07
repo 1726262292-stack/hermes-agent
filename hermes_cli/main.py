@@ -3545,6 +3545,7 @@ _AUX_TASKS: list[tuple[str, str, str]] = [
     ("compression", "Compression", "context summarization"),
     ("web_extract", "Web extract", "web page summarization"),
     ("approval", "Approval", "smart command approval"),
+    ("prompt_hooks", "Prompt hooks", "natural-language tool-call policies"),
     ("mcp", "MCP", "MCP tool reasoning"),
     ("title_generation", "Title generation", "session titles"),
     ("memory_query_rewrite", "Memory query rewrite", "memory retrieval queries"),

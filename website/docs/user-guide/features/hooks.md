@@ -1335,6 +1335,26 @@ hooks_auto_accept: false         # See "Consent model" below
 
 Event names must be one of the [plugin hook events](#plugin-hooks); typos produce a "Did you mean X?" warning and are skipped. Unknown keys inside a single entry are ignored; missing `command` is a skip-with-warning. `timeout > 300` is clamped with a warning.
 
+### Prompt hooks (LLM-evaluated policies)
+
+Instead of pointing at a script, a `pre_tool_call` entry can carry a natural-language policy under `prompt:` (mutually exclusive with `command:`). Before each matching tool call, an auxiliary LLM evaluates the policy against the tool name + arguments and returns a strict-JSON verdict; a non-allow verdict blocks the call with the model's reason. Inspired by [Cursor's hooks](https://cursor.com/docs/agent/hooks).
+
+```yaml
+hooks:
+  pre_tool_call:
+    - prompt: "Only allow read-only file operations"
+      matcher: "terminal"        # Optional; same regex matcher as shell hooks
+      timeout: 30                # Optional; LLM call timeout in seconds
+      model: "some-fast-model"   # Optional; overrides auxiliary.prompt_hooks.model
+      fail_closed: false         # Optional; see failure semantics below
+```
+
+- **Which model runs the check** — the `auxiliary.prompt_hooks` task in `config.yaml` (same plumbing as smart approvals); a fast/cheap model is recommended. A per-entry `model:` overrides it.
+- **Failure semantics** — timeouts, provider errors, and unparseable verdicts **fail open** by default (warning logged, tool call allowed), matching shell-hook failure behaviour. Set `fail_closed: true` on an entry to block the tool call when the policy cannot be evaluated.
+- **Consent** — prompt hooks flow through the same first-use consent prompt and `(event, command)` allowlist as shell hooks, with the policy text (as `prompt:<policy>`) standing in for the command string. No subprocess is ever spawned.
+- **Events** — `pre_tool_call` only; other events warn and skip the entry.
+- **Prompt-injection hardening** — the tool-call JSON is wrapped as untrusted input and the evaluator is instructed to ignore any directives inside it; arguments are capped at 8 KB before being embedded.
+
 ### JSON wire protocol
 
 Each time the event fires, Hermes spawns a subprocess for every matching hook (matcher permitting), pipes a JSON payload to **stdin**, and reads **stdout** back as JSON.

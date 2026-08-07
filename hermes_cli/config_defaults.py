@@ -907,6 +907,21 @@ DEFAULT_CONFIG = {
             "extra_body": {},
             "reasoning_effort": "",  # per-task thinking level: none|minimal|low|medium|high|xhigh|max|ultra (empty = provider default)
         },
+        # Prompt hooks — natural-language tool-call policies configured under
+        # `hooks: pre_tool_call: [{prompt: "...", matcher: "..."}]`. Each
+        # policy is evaluated against the pending tool call by this auxiliary
+        # model before the tool runs. A fast/cheap model is recommended (the
+        # verdict is a tiny strict-JSON response); per-entry `model:` in the
+        # hook definition overrides this.
+        "prompt_hooks": {
+            "provider": "auto",
+            "model": "",           # fast/cheap model recommended (e.g. gemini-flash, haiku)
+            "base_url": "",
+            "api_key": "",
+            "timeout": 30,
+            "extra_body": {},
+            "reasoning_effort": "",  # per-task thinking level: none|minimal|low|medium|high|xhigh|max|ultra (empty = provider default)
+        },
         "mcp": {
             "provider": "auto",
             "model": "",

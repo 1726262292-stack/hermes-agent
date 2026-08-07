@@ -282,6 +282,11 @@ def _cmd_test(args) -> None:
     print(f"Firing {len(specs)} hook(s) for event '{event}':\n")
     for spec in specs:
         print(f"  → {spec.command}")
+        if getattr(spec, "is_prompt_hook", False):
+            print("      ℹ prompt hook — evaluated by the auxiliary LLM at "
+                  "runtime; skipped by `hermes hooks test` (no script to run)")
+            print()
+            continue
         result = shell_hooks.run_once(spec, payload)
         _print_run_result(result)
         print()
@@ -365,6 +370,20 @@ def _cmd_doctor(_args) -> None:
 
 def _doctor_one(spec, shell_hooks) -> int:
     problems = 0
+
+    # Prompt hooks have no script — only the allowlist status is checkable
+    # offline (evaluation happens via the auxiliary LLM at runtime).
+    if getattr(spec, "is_prompt_hook", False):
+        entry = shell_hooks.allowlist_entry_for(spec.event, spec.command)
+        if entry:
+            print(f"      ✓ allowlisted (approved {entry.get('approved_at', '?')})")
+        else:
+            problems += 1
+            print("      ✗ not allowlisted — hook will NOT fire at runtime "
+                  "(run with --accept-hooks once, or confirm at the TTY prompt)")
+        print("      ℹ prompt hook — policy is evaluated by the auxiliary "
+              "LLM at runtime; no script to check")
+        return problems
 
     # 1. Script exists and is executable
     if shell_hooks.script_is_executable(spec.command):
