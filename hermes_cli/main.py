@@ -5164,6 +5164,15 @@ def _sweep_stale_bytecode_if_checkout_changed() -> None:
     reads, no git subprocess) against the last-validated stamp and sweeps
     the bytecode cache once when they diverge.
 
+    Scope (two-axis model): the sweep runs wherever ``.git`` exists —
+    managed installs AND dev trees. Dev trees accept the tradeoff on
+    purpose: the sweep writes ``.bytecode-fingerprint`` (gitignored) into
+    the tree and deletes ``__pycache__`` dirs, and skipping dev trees
+    would reopen the stale-pyc hole for everyone who lives in a checkout.
+    Sealed trees (embedded desktop, docker, nix) are exempt by
+    construction: no ``.git`` means no fingerprint, and the embedded app
+    also points PYTHONPYCACHEPREFIX outside its sealed resources.
+
     Never raises — a failure here must not block launch.
     """
     try:
