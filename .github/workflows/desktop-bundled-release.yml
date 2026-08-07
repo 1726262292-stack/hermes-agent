@@ -182,11 +182,12 @@ jobs:
           allow-no-subscriptions: true
 
       # ── Build + package through the shared script ──────────────────────
-      # scripts/build-bundled-desktop.mjs owns the whole sequence: the JS
-      # surface builds, the payload node dist, the bundled desktop build,
-      # and electron-builder. Run the same script locally to reproduce a
-      # CI build. The workflow adds only caching, signing, and upload.
-      # npm ci already ran above, so pass --no-install.
+      # scripts/build-bundled-desktop.mjs owns the whole sequence: the root
+      # npm ci, the JS surface builds, the payload node dist, the bundled
+      # desktop build, and electron-builder. Run the same script locally to
+      # reproduce a CI build. The workflow adds only caching, signing, and
+      # upload. (The npm ci above only warms the cache for the retry
+      # wrapper; the script's own npm ci is the one that counts.)
       - name: Build and package
         shell: bash
         env:
@@ -222,7 +223,7 @@ jobs:
               "-c.win.sign.publisherName=$AZURE_SIGN_PUBLISHER"
             )
           fi
-          node scripts/build-bundled-desktop.mjs --tag="$HERMES_BUNDLE_TAG" --no-install -- "${SIGN_ARGS[@]}"
+          node scripts/build-bundled-desktop.mjs --tag="$HERMES_BUNDLE_TAG" -- "${SIGN_ARGS[@]}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

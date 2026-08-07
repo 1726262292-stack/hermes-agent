@@ -4,15 +4,17 @@
 // .github/workflows/desktop-bundled-release.yml, in one runnable script:
 //
 //   1. preflight: uv, git, npm exist; a release tag is resolvable
-//   2. npm ci at the repo root (skip with --no-install)
+//   2. npm ci at the repo root
 //   3. build ui-tui (with hermes-ink) and the dashboard SPA
 //   4. download the payload node dist for this platform (22.x)
 //   5. npm run build in apps/desktop with HERMES_DESKTOP_BUNDLED=1
-//   6. npm run builder -- <platform targets>   (skip with --no-package)
+//   6. npm run builder -- <platform targets>
+//
+// Every step always runs. There is no opt-out: a skipped step is a
+// different artifact, and a different artifact is not a reproduction.
 //
 // Usage:
 //   node scripts/build-bundled-desktop.mjs --tag=v0.20.0
-//   node scripts/build-bundled-desktop.mjs --tag=v0.20.0 --no-install --no-package
 //
 // Signing is CI's job (Azure/Apple secrets). Local builds are unsigned.
 
@@ -29,12 +31,16 @@ const PAYLOAD_NODE_MAJOR = "22" // matches NODE_VERSION in scripts/install.sh
 
 const args = process.argv.slice(2)
 const tagArg = args.find((a) => a.startsWith("--tag="))?.slice("--tag=".length)
-const skipInstall = args.includes("--no-install")
-const skipPackage = args.includes("--no-package")
 // Everything after `--` goes to electron-builder verbatim (CI appends its
 // signing configuration this way).
 const dashDash = process.argv.indexOf("--")
 const extraBuilderArgs = dashDash === -1 ? [] : process.argv.slice(dashDash + 1)
+
+for (const retired of ["--no-install", "--no-package"]) {
+  if (args.includes(retired)) {
+    fail(`${retired} is retired: the build always runs every step`)
+  }
+}
 
 function fail(message) {
   console.error(`[build-bundled] ${message}`)
@@ -104,9 +110,11 @@ console.log(`[build-bundled] tag=${tag} platform=${process.platform}-${process.a
 // node_modules. Never run npm ci inside a workspace directory — that
 // builds a partial shadow tree beside the hoisted one and breaks module
 // resolution for the workspace builds below.
-if (!skipInstall) {
-  run("npm", ["ci", "--no-audit", "--no-fund"])
-}
+run("npm", ["ci", "--no-audit", "--no-fund"], {
+  env: {
+    "CI": "true" // skip annoying unicode install banner
+  }
+})
 run("npm", ["run", "build", "--workspace", "ui-tui"])
 run("npm", ["run", "build", "--workspace", "web"])
 
@@ -154,20 +162,16 @@ const env = {
 const desktop = path.join(REPO_ROOT, "apps", "desktop")
 run("npm", ["run", "build"], { cwd: desktop, env })
 
-if (skipPackage) {
-  console.log("[build-bundled] --no-package: stopping after payload staging")
-} else {
-  run(
-    "npm",
-    [
-      "run", "builder", "--",
-      ...targets.split(" "),
-      `-c.extraMetadata.version=${pyprojectVersion}`,
-      ...extraBuilderArgs,
-    ],
-    { cwd: desktop, env }
-  )
-  console.log(`[build-bundled] artifacts: ${path.join(desktop, "release")}`)
-}
+run(
+  "npm",
+  [
+    "run", "builder", "--",
+    ...targets.split(" "),
+    `-c.extraMetadata.version=${pyprojectVersion}`,
+    ...extraBuilderArgs,
+  ],
+  { cwd: desktop, env }
+)
+console.log(`[build-bundled] artifacts: ${path.join(desktop, "release")}`)
 
 fs.rmSync(work, { recursive: true, force: true })

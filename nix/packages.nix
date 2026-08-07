@@ -86,7 +86,7 @@
         # payload node dist, CPython, and wheels, and electron-builder
         # needs network and (on macOS) codesign access. Run it from a
         # checkout at a release tag:
-        #   nix run .#build-desktop-app-bundle -- --tag=vX.Y.Z --no-install
+        #   nix run .#build-desktop-app-bundle -- --tag=vX.Y.Z
         build-desktop-app-bundle = pkgs.writeShellApplication {
           name = "build-desktop-app-bundle";
           runtimeInputs = [ pkgs.nodejs_22 pkgs.uv pkgs.git ];
