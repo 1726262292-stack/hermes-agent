@@ -320,19 +320,6 @@ function stageRepo(tag, outDir) {
     "--source", "ci",
     "--distribution", "desktop-app",
   ])
-  // The install manifest is BUILD metadata for a resident bundle: the
-  // payload repo is always desktop-managed, always the stable channel,
-  // always pinned to this tag. Shipping it statically means the Python
-  // side (update refusal, eject, channel vocabulary) reads the same file
-  // in a resident bundle as in a materialized checkout.
-  fs.writeFileSync(
-    path.join(repoDir, ".hermes-install.json"),
-    JSON.stringify(
-      { schemaVersion: 1, installMode: "bundled", channel: "stable", manageStyle: "adopted", pinnedTag: tag },
-      null,
-      2
-    ) + "\n"
-  )
   return commit
 }
 

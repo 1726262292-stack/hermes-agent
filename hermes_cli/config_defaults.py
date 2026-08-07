@@ -2386,13 +2386,12 @@ DEFAULT_CONFIG = {
     # Settings for the update pipeline.
     "update": {
         # This setting selects the releases that `hermes update` tracks on
-        # source (git) installs:
-        #   auto   — use the install manifest (.hermes-install.json).
-        #            This is the same as "main" for each pre-existing install.
-        #   main   — git pull origin main (the current behavior).
+        # git checkouts:
+        #   main   — git pull origin main (the default).
         #   stable — check out the latest tagged release, not main.
-        # Bundled desktop installs ignore this setting and always track
-        # stable. Their updates come from the updater of the desktop app.
+        #   auto   — same as main (kept for pre-existing configs).
+        # Sealed installs (the embedded desktop app, docker, nix) ignore
+        # this setting; their stewards own versioning.
         "channel": "auto",
     },
 

@@ -9144,16 +9144,14 @@ def cmd_update(args):
 
         sys.exit(cmd_update_eject(args))
 
-    # Bundled desktop installs are materialized from payloads shipped inside
-    # the desktop app. The updater of the app re-materializes the checkout
-    # after the app updates itself. If `hermes update` changes that checkout,
-    # the checkout no longer agrees with the stamped tag of the shell. Thus
-    # refuse, and point at the in-app updater or at eject. Eject changes the
-    # install to source mode.
-    from hermes_cli.install_manifest import format_bundled_update_message, is_bundled_install
+    # A tree without .git is sealed: a steward (the desktop app, docker,
+    # nix, a package manager) replaces it wholesale, and `hermes update`
+    # has nothing to update. Refuse and name the steward's mechanism.
+    from hermes_cli.runtime_tree import Sealed, runtime_tree, steward_update_message
 
-    if is_bundled_install(PROJECT_ROOT):
-        print(format_bundled_update_message())
+    tree = runtime_tree(PROJECT_ROOT)
+    if isinstance(tree, Sealed):
+        print(steward_update_message(tree.steward))
         sys.exit(1)
 
     if getattr(args, "check", False):

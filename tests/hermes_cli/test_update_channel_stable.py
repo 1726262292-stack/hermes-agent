@@ -78,20 +78,14 @@ class TestStableChannelActive:
         """--branch means main-style behavior regardless of channel config."""
         assert _stable_channel_active(_Args(branch="bb/gui")) is False
 
-    def test_config_stable_activates(self, tmp_path):
-        with patch("hermes_cli.config.load_config", return_value={"update": {"channel": "stable"}}), \
-             patch("hermes_cli.install_manifest.install_manifest_path",
-                   return_value=tmp_path / ".hermes-install.json"):
+    def test_config_stable_activates(self):
+        with patch("hermes_cli.config.load_config", return_value={"update": {"channel": "stable"}}):
             assert _stable_channel_active(_Args()) is True
 
-    def test_default_config_stays_main(self, tmp_path):
-        with patch("hermes_cli.config.load_config", return_value={"update": {"channel": "auto"}}), \
-             patch("hermes_cli.install_manifest.install_manifest_path",
-                   return_value=tmp_path / ".hermes-install.json"):
+    def test_default_config_stays_main(self):
+        with patch("hermes_cli.config.load_config", return_value={"update": {"channel": "auto"}}):
             assert _stable_channel_active(_Args()) is False
 
-    def test_config_failure_defaults_to_main(self, tmp_path):
-        with patch("hermes_cli.config.load_config", side_effect=RuntimeError("boom")), \
-             patch("hermes_cli.install_manifest.install_manifest_path",
-                   return_value=tmp_path / ".hermes-install.json"):
+    def test_config_failure_defaults_to_main(self):
+        with patch("hermes_cli.config.load_config", side_effect=RuntimeError("boom")):
             assert _stable_channel_active(_Args()) is False
