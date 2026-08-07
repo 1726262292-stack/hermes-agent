@@ -441,7 +441,6 @@ export interface Translations {
       justNowSuffix: string
       automaticUpdates: string
       automaticUpdatesDesc: string
-      branchCommit: (branch: string, commit: string) => string
       never: string
       justNow: string
       minAgo: (count: number) => string
@@ -1824,6 +1823,17 @@ export interface Translations {
     tryAgain: string
     notAvailableTitle: string
     unsupportedMessage: string
+    versionDetailsTitle: string
+    versionDetailsBody: string
+    versionDetailsVersion: string
+    versionDetailsBaseVersion: string
+    versionDetailsBranch: string
+    versionDetailsNoBranchInfo: string
+    versionDetailsCommit: string
+    versionDetailsSource: string
+    versionDetailsDistribution: string
+    versionDetailsDirty: string
+    versionDetailsDirtyUnknown: string
     connectionRetry: string
     latestBody: string
     latestBodyBackend: string
@@ -1833,6 +1843,7 @@ export interface Translations {
     availableTitleBackend: string
     availableBodyBackend: string
     availableBodyNoChangelog: string
+    availableBodyRelease: (tag: string) => string
     updateNow: string
     maybeLater: string
     moreChanges: (count: number) => string
@@ -2062,6 +2073,7 @@ export interface Translations {
       update: string
       updateInProgress: string
       commitsBehind: (count: number, branch: string) => string
+      releaseAvailable: (tag: string) => string
       desktopVersion: (version: string) => string
       backendVersion: (version: string) => string
       clientLabel: (version: string) => string
