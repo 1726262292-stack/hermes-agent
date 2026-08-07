@@ -271,7 +271,9 @@ function stageRepo(tag, outDir) {
   const repoDir = path.join(outDir, "repo")
   fs.rmSync(repoDir, { recursive: true, force: true })
   fs.mkdirSync(repoDir, { recursive: true })
-  const commit = execSync(`git rev-parse ${tag}^{commit}`, { cwd: REPO_ROOT, encoding: "utf8" }).trim()
+  // rev-list, not `rev-parse <tag>^{commit}`: execSync on Windows runs
+  // through cmd.exe, where ^ is the escape character and eats the brace.
+  const commit = execSync(`git rev-list -n 1 ${tag}`, { cwd: REPO_ROOT, encoding: "utf8" }).trim()
   const commitDate = execSync(`git log -1 --format=%ct ${tag}`, { cwd: REPO_ROOT, encoding: "utf8" }).trim()
   // The payload repo is a PLAIN SOURCE TREE, deliberately without .git.
   // Bundled installs never run git against the checkout: updates replace
