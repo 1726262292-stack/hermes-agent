@@ -312,7 +312,12 @@ function stageRepo(tag, outDir) {
   // version_info ladder prefers this stamp over git probing, so bundled
   // installs report exact-release provenance (distance 0, the tag's
   // commit) with no .git present.
-  run("python3", [
+  // uv run, not bare python3: on Windows `python3` resolves to the
+  // Microsoft Store alias (exit 9009). uv is a hard prerequisite of this
+  // script anyway, and the desktop `build` npm script already runs this
+  // same stamp writer through it.
+  run("uv", [
+    "run", "--no-project", "--python", "3",
     path.join(repoDir, "scripts", "write_install_stamp.py"),
     "--output", path.join(repoDir, ".hermes_build_info.json"),
     "--commit", commit,
