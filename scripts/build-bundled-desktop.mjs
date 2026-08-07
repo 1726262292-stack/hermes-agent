@@ -47,7 +47,12 @@ function fail(message) {
 
 function run(cmd, argv, opts = {}) {
   console.log(`[build-bundled] $ ${cmd} ${argv.join(" ")}`)
-  const result = spawnSync(cmd, argv, { stdio: "inherit", cwd: REPO_ROOT, shell: process.platform === "win32", ...opts })
+  // shell mode (needed on Windows for npm.cmd) joins argv with bare
+  // spaces, so an argument with spaces — the signing publisherName —
+  // would be re-split. Quote those arguments ourselves.
+  const shell = process.platform === "win32"
+  const safeArgv = shell ? argv.map((a) => (/\s/.test(a) ? `"${a}"` : a)) : argv
+  const result = spawnSync(cmd, safeArgv, { stdio: "inherit", cwd: REPO_ROOT, shell, ...opts })
   if (result.status !== 0) {
     fail(`${cmd} exited ${result.status}`)
   }
