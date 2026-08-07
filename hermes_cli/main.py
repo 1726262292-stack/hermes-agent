@@ -2708,6 +2708,16 @@ def cmd_chat(args):
     # Import and run the CLI
     from cli import main as cli_main
 
+    # Opt-in workspace trust gate (security.workspace_trust_prompt). Plain
+    # interactive CLI only — the TUI branch above never returns. Never let
+    # the gate break startup.
+    try:
+        from hermes_cli.workspace_trust import maybe_prompt_workspace_trust
+
+        maybe_prompt_workspace_trust()
+    except Exception:
+        pass
+
     # Build kwargs from args
     kwargs = {
         "model": args.model,
@@ -10613,7 +10623,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "project", "proxy",
         "prompt-size",
         "send", "sessions", "setup",
-        "skin", "skills", "slack", "status", "sync", "tools", "uninstall", "update",
+        "skin", "skills", "slack", "status", "sync", "tools", "trust", "uninstall", "update",
         "version", "webhook", "whatsapp", "whatsapp-cloud", "chat", "secrets", "security",
         # Help-ish invocations — plugin commands not being listed in
         # top-level --help is an acceptable trade-off for skipping an
@@ -11252,6 +11262,33 @@ def main():
     moa_delete = moa_subparsers.add_parser("delete", aliases=["rm"], help="Delete a MoA preset")
     moa_delete.add_argument("name", help="Preset name to delete")
     moa_parser.set_defaults(func=cmd_moa)
+
+    # =========================================================================
+    # trust command — per-workspace trust decisions (workspace-trust.json)
+    # =========================================================================
+    from hermes_cli.workspace_trust import cmd_trust
+
+    trust_parser = subparsers.add_parser(
+        "trust",
+        help="Manage per-workspace trust decisions (untrusted → manual approvals)",
+        description=(
+            "Manage the per-workspace trust store (~/.hermes/workspace-trust.json). "
+            "Sessions started in an untrusted workspace get approvals forced to "
+            "'manual' — the decision only ever tightens the configured approval "
+            "mode. Prompting on first run is opt-in via "
+            "security.workspace_trust_prompt in config.yaml."
+        ),
+    )
+    trust_subparsers = trust_parser.add_subparsers(dest="trust_command")
+    trust_subparsers.add_parser("list", aliases=["ls"], help="Show recorded workspace trust decisions")
+    trust_set = trust_subparsers.add_parser("set", help="Record a trust decision for a workspace")
+    trust_set.add_argument("path", nargs="?", help="Workspace path (default: current directory)")
+    trust_set_group = trust_set.add_mutually_exclusive_group(required=True)
+    trust_set_group.add_argument("--trusted", action="store_true", dest="trusted", help="Mark the workspace trusted")
+    trust_set_group.add_argument("--untrusted", action="store_false", dest="trusted", help="Mark the workspace untrusted (manual approvals)")
+    trust_remove = trust_subparsers.add_parser("remove", aliases=["rm"], help="Forget a workspace's trust decision")
+    trust_remove.add_argument("path", nargs="?", help="Workspace path (default: current directory)")
+    trust_parser.set_defaults(func=cmd_trust)
 
     # =========================================================================
     # fallback command — manage the fallback provider chain

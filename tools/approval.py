@@ -2933,8 +2933,26 @@ def _get_approval_config() -> dict:
         return {}
 
 
+# One-way, process-scoped latch armed by the workspace-trust gate
+# (hermes_cli/workspace_trust.py) when the current workspace is marked
+# untrusted. Once armed it can only tighten: every approval-mode read for
+# the rest of the process returns 'manual' regardless of the configured
+# mode. There is deliberately no API to clear it — an untrusted workspace
+# must never be able to end up with a weaker posture than the profile
+# config (mirrors the _YOLO_MODE_FROZEN one-way pattern above, inverted).
+_UNTRUSTED_WORKSPACE_LATCH = False
+
+
+def enforce_untrusted_workspace() -> None:
+    """Force approval mode to 'manual' for the rest of this process."""
+    global _UNTRUSTED_WORKSPACE_LATCH
+    _UNTRUSTED_WORKSPACE_LATCH = True
+
+
 def _get_approval_mode() -> str:
     """Read the approval mode from config. Returns 'manual', 'smart', or 'off'."""
+    if _UNTRUSTED_WORKSPACE_LATCH:
+        return "manual"
     mode = _get_approval_config().get("mode", "manual")
     return _normalize_approval_mode(mode)
 

@@ -2156,6 +2156,16 @@ DEFAULT_CONFIG = {
         # for restricted networks, audited environments, or air-gapped
         # systems where any runtime install is unacceptable.
         "allow_lazy_installs": True,
+        # Prompt on first interactive CLI run in a new workspace whether to
+        # trust it, and persist the decision (keyed by the realpath of the
+        # git root, or cwd outside a repo) to
+        # ~/.hermes/workspace-trust.json. A workspace answered "no" gets
+        # approvals forced to 'manual' for its sessions — the decision only
+        # ever tightens the configured approval mode, never loosens it.
+        # Manage recorded decisions with `hermes trust list|set|remove`.
+        # Opt-in: default false keeps existing startup behavior unchanged.
+        # Ported from superagent-ai/grok-cli's workspace trust store.
+        "workspace_trust_prompt": False,
     },
 
     "cron": {
