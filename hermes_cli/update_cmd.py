@@ -3999,11 +3999,19 @@ def _cmd_update_impl(args, gateway_mode: bool):
     # to the update branch. That is correct at a managed install root (the
     # installer created it to be updated) and rude anywhere else — a dev
     # worktree on a feature branch would get yanked to main. Ask first;
-    # refuse when nobody can answer. --yes skips the question.
+    # refuse when nobody can answer. --yes skips the question. The guard
+    # is a courtesy: an unclassifiable PROJECT_ROOT skips it and keeps the
+    # historical behavior.
     from hermes_cli.runtime_tree import is_managed_install_root
 
-    project_root = Path(_m().PROJECT_ROOT)
-    if (project_root / ".git").exists() and not is_managed_install_root(project_root):
+    try:
+        project_root = Path(_m().PROJECT_ROOT)
+        _guard_applies = (
+            (project_root / ".git").exists() and not is_managed_install_root(project_root)
+        )
+    except (TypeError, OSError):
+        _guard_applies = False
+    if _guard_applies:
         print(f"⚠ This is a git checkout at {project_root},")
         print("  not the managed install. `hermes update` will stash local")
         print("  changes and move this checkout to the update branch.")
