@@ -3995,6 +3995,30 @@ def _cmd_update_impl(args, gateway_mode: bool):
             logger.debug("Could not read updates.non_interactive_local_changes: %s", exc)
             discard_local_changes = False
 
+    # Guard: `hermes update` stashes local changes and moves the checkout
+    # to the update branch. That is correct at a managed install root (the
+    # installer created it to be updated) and rude anywhere else — a dev
+    # worktree on a feature branch would get yanked to main. Ask first;
+    # refuse when nobody can answer. --yes skips the question.
+    from hermes_cli.runtime_tree import is_managed_install_root
+
+    project_root = Path(_m().PROJECT_ROOT)
+    if (project_root / ".git").exists() and not is_managed_install_root(project_root):
+        print(f"⚠ This is a git checkout at {project_root},")
+        print("  not the managed install. `hermes update` will stash local")
+        print("  changes and move this checkout to the update branch.")
+        print("  If this is your working tree, use `git pull` instead.")
+        if assume_yes:
+            print("  Continuing (--yes).")
+        elif gateway_mode or not (sys.stdin.isatty() and sys.stdout.isatty()):
+            print("✗ Refused: no terminal to confirm on. Re-run with --yes to force.")
+            sys.exit(3)
+        else:
+            answer = input("  Update this checkout anyway? [y/N] ").strip().lower()
+            if answer not in ("y", "yes"):
+                print("✗ Update canceled. The checkout is untouched.")
+                sys.exit(3)
+
     print("⚕ Updating Hermes Agent...")
     print()
 
