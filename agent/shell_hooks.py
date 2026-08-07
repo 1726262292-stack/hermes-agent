@@ -786,7 +786,7 @@ def _prompt_hook_failure(
             ),
         }
     logger.warning(
-        "%s (policy=%r tool=%s) — failing open (tool call allowed)",
+        "%s (policy=%r tool=%s) — tool call allowed (fail-open)",
         detail, spec.prompt, kwargs.get("tool_name"),
     )
     return None
@@ -915,7 +915,7 @@ def save_allowlist(data: Dict[str, Any]) -> None:
             prefix=f"{p.name}.", suffix=".tmp", dir=str(p.parent),
         )
         try:
-            with os.fdopen(fd, "w") as fh:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(json.dumps(data, indent=2, sort_keys=True))
             atomic_replace(tmp_path, p)
         except Exception:

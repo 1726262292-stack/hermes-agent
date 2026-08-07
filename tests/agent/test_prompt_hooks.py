@@ -216,7 +216,7 @@ class TestEvaluatePromptHook:
                 spec, {"tool_name": "terminal", "args": {}},
             )
         assert result is None
-        assert any("failing open" in r.getMessage() for r in caplog.records)
+        assert any("fail-open" in r.getMessage() for r in caplog.records)
 
     def test_unparseable_verdict_fails_open_by_default(self, monkeypatch, caplog):
         import logging
@@ -227,7 +227,7 @@ class TestEvaluatePromptHook:
                 spec, {"tool_name": "terminal", "args": {}},
             )
         assert result is None
-        assert any("failing open" in r.getMessage() for r in caplog.records)
+        assert any("fail-open" in r.getMessage() for r in caplog.records)
 
     def test_llm_exception_blocks_when_fail_closed(self, monkeypatch):
         _mock_llm(monkeypatch, exc=RuntimeError("provider down"))
