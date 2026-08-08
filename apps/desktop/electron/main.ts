@@ -10026,6 +10026,7 @@ ipcMain.handle('hermes:window:readBelow', async event => {
   const titlesAvailable = IS_MAC
     ? systemPreferences.getMediaAccessStatus?.('screen') === 'granted'
     : true
+
   const [x, y] = win.getPosition()
   const [width, height] = win.getSize()
 
