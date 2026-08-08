@@ -276,9 +276,11 @@
       ]
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
       "perMachine": false,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
       "shortcutName": "Hermes",
       "uninstallDisplayName": "Hermes",
       "warningsAsErrors": false
