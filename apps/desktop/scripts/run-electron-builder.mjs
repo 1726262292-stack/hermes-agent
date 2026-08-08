@@ -48,6 +48,13 @@ if (dist && fs.existsSync(distBinary(dist))) {
 }
 args.push(...process.argv.slice(2))
 
+// Never let electron-builder publish. On a CI tag build it auto-detects
+// GitHub and demands GH_TOKEN after the artifacts are already built.
+// The release workflow uploads artifacts in its own step.
+if (!args.includes("--publish") && !args.some((a) => a.startsWith("-p"))) {
+  args.push("--publish", "never")
+}
+
 // Windows signing config is composed HERE, from the AZURE_SIGN_* variables,
 // not passed down as -c arguments. The publisherName contains spaces and
 // commas, and no quoting survives the cmd.exe hops between the outer build
