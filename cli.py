@@ -9914,7 +9914,15 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             # object directly to actually clear the terminal.
             if self._app:
                 out = self._app.output
+                out.reset_attributes()
                 out.erase_screen()
+                # ESC[3J clears the terminal scrollback buffer; without it
+                # only the visible viewport is wiped and old content remains
+                # reachable by scrolling up.
+                try:
+                    out.write_raw("\x1b[3J")
+                except Exception:
+                    pass
                 out.cursor_goto(0, 0)
                 out.flush()
             else:

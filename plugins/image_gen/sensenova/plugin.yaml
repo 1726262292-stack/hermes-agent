@@ -1,0 +1,7 @@
+name: sensenova
+version: 1.0.0
+description: "SenseNova (商汤) 图像生成后端 (sensenova-u1-fast,信息图生成)。保存生成的图片到 $HERMES_HOME/cache/images/。"
+author: Hermes Agent
+kind: backend
+requires_env:
+  - SENSENOVA_API_KEY
